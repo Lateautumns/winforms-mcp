@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <Version>1.5.12-beta</Version>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Rhombus.WinFormsMcp.RuntimeContracts</RootNamespace>
+    <AssemblyName>Rhombus.WinFormsMcp.RuntimeContracts</AssemblyName>
+    <Description>Versioned, UI-framework-neutral contracts for the WinForms MCP runtime bridge.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+</Project>

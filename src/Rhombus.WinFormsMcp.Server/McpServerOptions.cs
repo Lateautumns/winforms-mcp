@@ -13,4 +13,7 @@ public class McpServerOptions {
     public int ToolTimeoutMs { get; set; } = 30000;
     public int RendererTimeoutMs { get; set; } = 30000;
     public int RendererStartupTimeoutMs { get; set; } = 10000;
+    public bool RuntimeBridgeEnabled { get; set; } = true;
+    public int RuntimeBridgeConnectTimeoutMs { get; set; } = 1000;
+    public int RuntimeBridgeRequestTimeoutMs { get; set; } = 5000;
 }

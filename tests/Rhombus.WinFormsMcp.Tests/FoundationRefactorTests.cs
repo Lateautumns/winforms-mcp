@@ -21,7 +21,7 @@ public class FoundationRefactorTests {
 
         var registry = CreateRegistry(handlers);
 
-        Assert.That(registry.Tools, Has.Count.EqualTo(33));
+        Assert.That(registry.Tools, Has.Count.EqualTo(40));
         Assert.That(registry.Tools.Select(tool => tool.Name), Is.Unique);
     }
 

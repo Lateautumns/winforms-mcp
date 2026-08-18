@@ -88,7 +88,25 @@ internal static class ToolDefinitionCatalog {
         Define(ToolNames.SetClipboard, "Write text to the Windows clipboard.", Props(
             ("text", String("Clipboard text"))), "text"),
         Define(ToolNames.ReadTooltip, "Read tooltip text associated with a cached element.", Props(
-            ("elementId", String("Cached element ID"))), "elementId")
+            ("elementId", String("Cached element ID"))), "elementId"),
+        Define(ToolNames.RuntimeStatus, "Check whether a target process exposes the read-only WinForms RuntimeBridge.", Props(
+            ("pid", Integer("Target process ID"))), "pid"),
+        Define(ToolNames.GetControlTree, "Return a bounded managed Control.Controls tree from a target WinForms process.", Props(
+            ("pid", Integer("Target process ID")), ("rootId", String("Optional managed control ID")),
+            ("maxDepth", Integer("Maximum tree depth")), ("maxNodes", Integer("Maximum returned nodes"))), "pid"),
+        Define(ToolNames.InspectControl, "Inspect one managed WinForms control's identity, state, safe properties, and layout.", Props(
+            ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID")),
+            ("sections", Array("identity, state, properties, layout, or bindings", "string")),
+            ("includeProperties", Array("Additional safe property names to read", "string"))), "pid", "controlId"),
+        Define(ToolNames.GetAncestors, "Return the managed parent chain for a control, nearest parent first.", Props(
+            ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID"))), "pid", "controlId"),
+        Define(ToolNames.GetWindowTree, "Return the bounded HWND tree for a target process, including dialogs and owned/pop-up windows.", Props(
+            ("pid", Integer("Target process ID")), ("maxNodes", Integer("Maximum returned HWND nodes"))), "pid"),
+        Define(ToolNames.GetBindings, "Read DataBindings attached to one managed WinForms control.", Props(
+            ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID"))), "pid", "controlId"),
+        Define(ToolNames.GetSourceMapping, "Map a managed control to its Designer declaration, initialization, and event handler symbols.", Props(
+            ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID")),
+            ("sourceRoot", String("Optional source or solution root to scan"))), "pid", "controlId")
     ];
 
     private static Tool Define(

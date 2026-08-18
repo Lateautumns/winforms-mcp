@@ -34,4 +34,11 @@ internal static class ToolNames {
     public const string SetClipboard = "winforms_set_clipboard";
     public const string ReadTooltip = "winforms_read_tooltip";
     public const string FindElements = "winforms_find_elements";
+    public const string RuntimeStatus = "winforms_runtime_status";
+    public const string GetControlTree = "winforms_get_control_tree";
+    public const string InspectControl = "winforms_inspect_control";
+    public const string GetAncestors = "winforms_get_ancestors";
+    public const string GetWindowTree = "winforms_get_window_tree";
+    public const string GetBindings = "winforms_get_bindings";
+    public const string GetSourceMapping = "winforms_get_source_mapping";
 }

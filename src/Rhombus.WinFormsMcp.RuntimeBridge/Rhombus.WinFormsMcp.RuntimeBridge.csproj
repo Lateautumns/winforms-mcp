@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <PropertyGroup>
+    <TargetFrameworks>net48;net8.0-windows</TargetFrameworks>
+    <Version>1.5.12-beta</Version>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <RootNamespace>Rhombus.WinFormsMcp.RuntimeBridge</RootNamespace>
+    <AssemblyName>Rhombus.WinFormsMcp.RuntimeBridge</AssemblyName>
+    <Description>Read-only in-process WinForms runtime inspection bridge.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Rhombus.WinFormsMcp.RuntimeContracts\Rhombus.WinFormsMcp.RuntimeContracts.csproj" />
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+</Project>

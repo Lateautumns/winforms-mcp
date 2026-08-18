@@ -28,6 +28,9 @@ public class McpServerOptionsTests {
         Assert.That(opts.ToolTimeoutMs, Is.EqualTo(30000));
         Assert.That(opts.RendererTimeoutMs, Is.EqualTo(30000));
         Assert.That(opts.RendererStartupTimeoutMs, Is.EqualTo(10000));
+        Assert.That(opts.RuntimeBridgeEnabled, Is.True);
+        Assert.That(opts.RuntimeBridgeConnectTimeoutMs, Is.EqualTo(1000));
+        Assert.That(opts.RuntimeBridgeRequestTimeoutMs, Is.EqualTo(5000));
     }
 
     [Test]
@@ -127,5 +130,29 @@ public class McpServerOptionsTests {
         Assert.That(opts.ToolTimeoutMs, Is.EqualTo(30000));
         Assert.That(opts.RendererTimeoutMs, Is.EqualTo(30000));
         Assert.That(opts.RendererStartupTimeoutMs, Is.EqualTo(10000));
+    }
+
+    [Test]
+    public void BindOptions_RuntimeBridgeSettings() {
+        var opts = Bind(new Dictionary<string, string?> {
+            ["RUNTIME_BRIDGE_ENABLED"] = "0",
+            ["RUNTIME_BRIDGE_CONNECT_TIMEOUT_MS"] = "250",
+            ["RUNTIME_BRIDGE_REQUEST_TIMEOUT_MS"] = "1750"
+        });
+
+        Assert.That(opts.RuntimeBridgeEnabled, Is.False);
+        Assert.That(opts.RuntimeBridgeConnectTimeoutMs, Is.EqualTo(250));
+        Assert.That(opts.RuntimeBridgeRequestTimeoutMs, Is.EqualTo(1750));
+    }
+
+    [Test]
+    public void BindOptions_InvalidRuntimeBridgeTimeoutsUseDefaults() {
+        var opts = Bind(new Dictionary<string, string?> {
+            ["RUNTIME_BRIDGE_CONNECT_TIMEOUT_MS"] = "0",
+            ["RUNTIME_BRIDGE_REQUEST_TIMEOUT_MS"] = "-1"
+        });
+
+        Assert.That(opts.RuntimeBridgeConnectTimeoutMs, Is.EqualTo(1000));
+        Assert.That(opts.RuntimeBridgeRequestTimeoutMs, Is.EqualTo(5000));
     }
 }

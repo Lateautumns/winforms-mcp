@@ -21,6 +21,7 @@
     <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
     <PackageReference Include="Moq" Version="4.20.70" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
+    <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.10" />
@@ -35,6 +36,7 @@
     <ProjectReference Include="../../src/Rhombus.WinFormsMcp.Server/Rhombus.WinFormsMcp.Server.csproj" />
     <ProjectReference Include="../../src/Rhombus.WinFormsMcp.Rendering/Rhombus.WinFormsMcp.Rendering.csproj" />
     <ProjectReference Include="../../src/Rhombus.WinFormsMcp.TestApp/Rhombus.WinFormsMcp.TestApp.csproj" />
+    <ProjectReference Include="../../src/Rhombus.WinFormsMcp.RuntimeContracts/Rhombus.WinFormsMcp.RuntimeContracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -133,6 +133,13 @@ public class McpIntegrationTests {
             "winforms_set_clipboard",
             "winforms_read_tooltip",
             "winforms_find_elements",
+            "winforms_runtime_status",
+            "winforms_get_control_tree",
+            "winforms_inspect_control",
+            "winforms_get_ancestors",
+            "winforms_get_window_tree",
+            "winforms_get_bindings",
+            "winforms_get_source_mapping",
         };
 
         var expectedSet = new HashSet<string>(expectedTools);

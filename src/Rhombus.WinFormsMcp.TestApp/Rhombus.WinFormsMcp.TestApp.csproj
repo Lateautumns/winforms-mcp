@@ -10,4 +10,8 @@
     <AssemblyName>Rhombus.WinFormsMcp.TestApp</AssemblyName>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Rhombus.WinFormsMcp.RuntimeBridge\Rhombus.WinFormsMcp.RuntimeBridge.csproj" />
+  </ItemGroup>
+
 </Project>

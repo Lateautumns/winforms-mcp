@@ -17,6 +17,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rhombus.WinFormsMcp.Rendere
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rhombus.WinFormsMcp.Rendering", "src\Rhombus.WinFormsMcp.Rendering\Rhombus.WinFormsMcp.Rendering.csproj", "{89A10E67-91B2-4D04-92C5-2C05F0D991C6}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rhombus.WinFormsMcp.RuntimeContracts", "src\Rhombus.WinFormsMcp.RuntimeContracts\Rhombus.WinFormsMcp.RuntimeContracts.csproj", "{B2F1C2A0-7E0F-4D69-8B2A-1C1E7F3A9D01}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rhombus.WinFormsMcp.RuntimeBridge", "src\Rhombus.WinFormsMcp.RuntimeBridge\Rhombus.WinFormsMcp.RuntimeBridge.csproj", "{C3A2D3B1-8F10-4E7A-9C3B-2D2F8A4BAE02}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -46,6 +50,14 @@ Global
 		{89A10E67-91B2-4D04-92C5-2C05F0D991C6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{89A10E67-91B2-4D04-92C5-2C05F0D991C6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{89A10E67-91B2-4D04-92C5-2C05F0D991C6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B2F1C2A0-7E0F-4D69-8B2A-1C1E7F3A9D01}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B2F1C2A0-7E0F-4D69-8B2A-1C1E7F3A9D01}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B2F1C2A0-7E0F-4D69-8B2A-1C1E7F3A9D01}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B2F1C2A0-7E0F-4D69-8B2A-1C1E7F3A9D01}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C3A2D3B1-8F10-4E7A-9C3B-2D2F8A4BAE02}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C3A2D3B1-8F10-4E7A-9C3B-2D2F8A4BAE02}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C3A2D3B1-8F10-4E7A-9C3B-2D2F8A4BAE02}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C3A2D3B1-8F10-4E7A-9C3B-2D2F8A4BAE02}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{FA611870-BD2A-4DB9-A782-9A8630B47599} = {746C1254-339C-407D-8FC2-BE71CAA87016}
@@ -53,5 +65,7 @@ Global
 		{24993B7F-6A47-401D-9E46-5549E43B453C} = {E5FE0ABE-65D5-4527-A8EE-A98179BF82B7}
 		{7747AEEF-2768-44DA-B9B7-1028A930DA75} = {746C1254-339C-407D-8FC2-BE71CAA87016}
 		{89A10E67-91B2-4D04-92C5-2C05F0D991C6} = {746C1254-339C-407D-8FC2-BE71CAA87016}
+		{B2F1C2A0-7E0F-4D69-8B2A-1C1E7F3A9D01} = {746C1254-339C-407D-8FC2-BE71CAA87016}
+		{C3A2D3B1-8F10-4E7A-9C3B-2D2F8A4BAE02} = {746C1254-339C-407D-8FC2-BE71CAA87016}
 	EndGlobalSection
 EndGlobal
