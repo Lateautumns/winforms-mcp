@@ -2,61 +2,62 @@
 
 ## Stage
 
-Stage 0 - PR #1 RuntimeBridge lifecycle final hardening.
+Stage 1 - V1.4 stacked branch setup completed; Stage 2 - AntdUI source reconnaissance in progress.
 
 ## Implemented
 
-- Replaced the managed control identity forward map with a weak-key table so registered controls are not kept alive by the registry.
-- Added cleanup behavior coverage for disposed and garbage-collected controls.
-- Added graceful RuntimeBridgeHost stop/dispose behavior that cancels the listener, closes the active pipe, waits for listener/request completion, and releases the shutdown token source last.
-- Added repeatable static bridge stop/restart coverage through McpRuntimeBridge.
+- Completed PR #1 Stage 0 RuntimeBridge lifecycle hardening on feature/v11-foundation-refactor.
+- Confirmed PR #1 Core CI green on commit bd19b0ea49a50441d6dbb8f7c75fba61f3d3f652.
+- Created stacked development branch feature/v14-antdui-provider from feature/v11-foundation-refactor.
+- Confirmed AntdUI reference repository exists at D:\06_开源工具重写\AntdUIAntdUI.
+- Started Stage 2 as source reconnaissance only.
 
 ## Architecture
 
 - RuntimeBridge remains read-only inspection infrastructure.
-- No AntdUI provider work has started.
-- No MCP tools were added, removed, or renamed.
+- Stage 1/2 does not add AntdUIProvider implementation yet.
+- Stage 2 will document real AntdUI source structure before provider design.
 
 ## MCP Changes
 
 - Added: none.
 - Changed: none.
-- Unchanged: existing 40 MCP tools and current Runtime Inspection tool surface.
+- Unchanged: existing MCP tool surface.
 
 ## Build
 
-- Local format verify: passed.
-- Local restore: passed.
-- Local Release solution build: passed with 0 warnings and 0 errors.
-- Local RendererHost multi-target Release build: passed with 0 warnings and 0 errors.
-- Note: local validation used a temporary SDK roll-forward change because this machine does not expose the repository's .NET 8 SDK; global.json was restored before commit.
+- Stage 0 PR #1 Core CI is green.
+- Stage 1 branch setup is docs-only so far.
 
 ## Tests
 
-- Local full test run: 278 passed, 44 skipped, 0 failed, 322 total.
-- New lifecycle-focused tests: 13 passed.
+- Stage 0 local full test run: 278 passed, 44 skipped, 0 failed, 322 total.
+- Stage 1 branch setup has no code changes yet.
 
 ## CI
 
-- Core CI: green on PR and push runs for commit 15c711397910f50c640075c10a12a5116bce6b0f.
-- External CI: Claude Code Review failed because the Claude Code GitHub App is not installed on the fork; this is external service setup, not a Core CI failure.
+- PR #1 Core CI: green.
+- PR #1 External CI: Claude Code Review fails because the Claude Code GitHub App is not installed on the fork.
+- PR #2 Core CI: pending after branch push.
 
 ## Git
 
-- Branch: feature/v11-foundation-refactor.
-- Commit: 15c711397910f50c640075c10a12a5116bce6b0f (fix: harden runtime bridge lifecycle).
-- PR: #1, Draft, Lateautumns/winforms-mcp.
-- Working Tree: clean after Stage 0 commit/push.
+- Base Branch: feature/v11-foundation-refactor.
+- Current Branch: feature/v14-antdui-provider.
+- Base Commit: bd19b0ea49a50441d6dbb8f7c75fba61f3d3f652.
+- Draft PR: pending creation, target feature/v11-foundation-refactor.
+- Working Tree: pending Stage 1 progress commit.
 
 ## Risks
 
-- Local SDK differs from CI SDK; Windows CI remains the authoritative .NET 8 verification.
-- Stage 0 deliberately avoids AntdUI and new MCP tools.
+- AntdUI repository currently contains untracked .codegraph directories; treat them as local analysis artifacts and never commit them.
+- Stage 2 must not modify AntdUI source and must not add AntdUI references to core projects.
 
 ## Next
 
-- PR #1 is ready for human review after Core CI green.
-- Proceed to Stage 1 stacked branch setup from feature/v11-foundation-refactor.
+- Create Draft PR #2 from feature/v14-antdui-provider to feature/v11-foundation-refactor.
+- Continue Stage 2 AntdUI source reconnaissance and record findings.
+- Do not implement AntdUIProvider until reconnaissance is complete.
 
 ## Hard Blocker
 
