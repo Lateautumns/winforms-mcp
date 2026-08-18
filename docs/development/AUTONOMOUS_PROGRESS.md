@@ -78,16 +78,18 @@ Stage 4 - AntdUI basic control inspection complete; Stage 4 Gate passed locally.
 - PR #1 Core CI: green.
 - PR #1 External CI: Claude Code Review fails because the Claude Code GitHub App is not installed on the fork.
 - PR #2 Core CI before Stage 4 commit: green on commit 8d66583 feat: add control provider architecture.
+- PR #2 Core CI for Stage 4 commit: green on commit b7ac9f2 feat: add AntdUI basic control inspection.
 - PR #2 External CI: Claude Code Review fails for the same missing GitHub App setup.
-- Stage 4 commit CI: pending push.
+- Stage 4 commit CI: green.
 
 ## Git
 
 - Base Branch: feature/v11-foundation-refactor.
 - Current Branch: feature/v14-antdui-provider.
 - Current Head Before Stage 4 Commit: 8d66583 feat: add control provider architecture.
+- Stage 4 Commit: b7ac9f2 feat: add AntdUI basic control inspection.
 - Draft PR: #2, target feature/v11-foundation-refactor.
-- Working Tree: pending Stage 4 AntdUI basic control inspection commit.
+- Working Tree: clean after Stage 4 commit/push; pending CI status documentation commit.
 
 ## Risks
 
@@ -99,8 +101,8 @@ Stage 4 - AntdUI basic control inspection complete; Stage 4 Gate passed locally.
 
 ## Next
 
-- Commit and push Stage 4 AntdUI basic control inspection.
-- Check PR #2 Core CI for the Stage 4 commit.
+- Commit and push this Stage 4 CI status update.
+- Check PR #2 Core CI for the status update commit.
 - If Core CI is green, enter Stage 5 complex AntdUI semantic tree inspection for Tabs, Tree, Table, and Menu.
 
 ## Hard Blocker
@@ -115,3 +117,4 @@ None.
 - dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false: passed with 0 warnings and 0 errors.
 - dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false: passed with 0 warnings and 0 errors.
 - dotnet test Rhombus.WinFormsMcp.sln --configuration Release --no-build: 329 total, 285 passed, 44 skipped, 0 failed.
+- GitHub PR #2 CI run 32188783782: passed, build-test-coverage green on Windows.
