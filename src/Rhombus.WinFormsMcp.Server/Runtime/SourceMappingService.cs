@@ -50,7 +50,7 @@ internal sealed class SourceMappingService {
             return result;
         }
 
-        var files = EnumerateSourceFiles(root, cancellationToken);
+        var files = EnumerateSourceFiles(root);
         var candidates = new List<(string Path, SyntaxTree Tree, CompilationUnitSyntax Unit, ClassDeclarationSyntax Type)>();
         foreach (var file in files) {
             cancellationToken.ThrowIfCancellationRequested();
@@ -96,7 +96,7 @@ internal sealed class SourceMappingService {
             !candidate.Path.EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase));
 
         if (!string.IsNullOrWhiteSpace(designer.Path)) {
-            result.Designer = ToLocation(designer.Tree, designer.Type.Identifier.GetLocation(), designer.Path);
+            result.Designer = ToLocation(designer.Type.Identifier.GetLocation(), designer.Path);
             result.Declaration = FindFieldLocation(designer, control.Name);
             result.Initialization = FindInitializationLocation(designer, control.Name);
             FindEvents(designer, control.Name, result, cancellationToken);
@@ -123,7 +123,7 @@ internal sealed class SourceMappingService {
             .OfType<FieldDeclarationSyntax>()
             .FirstOrDefault(field => field.Declaration.Variables.Any(variable =>
                 string.Equals(variable.Identifier.ValueText, controlName, StringComparison.Ordinal)));
-        return field is null ? null : ToLocation(candidate.Tree, field.GetLocation(), candidate.Path);
+        return field is null ? null : ToLocation(field.GetLocation(), candidate.Path);
     }
 
     private static SourceLocationSnapshot? FindInitializationLocation(
@@ -138,7 +138,7 @@ internal sealed class SourceMappingService {
         var statement = initializeMethod.DescendantNodes()
             .OfType<StatementSyntax>()
             .FirstOrDefault(statement => statement.ToString().Contains(controlName, StringComparison.Ordinal));
-        return statement is null ? null : ToLocation(candidate.Tree, statement.GetLocation(), candidate.Path);
+        return statement is null ? null : ToLocation(statement.GetLocation(), candidate.Path);
     }
 
     private static void FindEvents(
@@ -169,7 +169,7 @@ internal sealed class SourceMappingService {
                 continue;
 
             var eventName = eventAccess.Name.Identifier.ValueText;
-            var location = ToLocation(candidate.Tree, assignment.GetLocation(), candidate.Path);
+            var location = ToLocation(assignment.GetLocation(), candidate.Path);
             result.Events[eventName] = new EventHandlerSnapshot {
                 Event = eventName,
                 Method = handler,
@@ -193,7 +193,7 @@ internal sealed class SourceMappingService {
                 continue;
             }
 
-            var location = ToLocation(candidate.Tree, method.GetLocation(), candidate.Path);
+            var location = ToLocation(method.GetLocation(), candidate.Path);
             mapping.File = candidate.Path;
             mapping.Line = location.Line;
             mapping.FullyQualifiedSymbol = string.IsNullOrWhiteSpace(result.FullyQualifiedType)
@@ -227,7 +227,7 @@ internal sealed class SourceMappingService {
         }
     }
 
-    private static IReadOnlyList<string> EnumerateSourceFiles(string root, CancellationToken cancellationToken) {
+    private static IReadOnlyList<string> EnumerateSourceFiles(string root) {
         try {
             return Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
                 .Where(file => !file.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
@@ -269,7 +269,7 @@ internal sealed class SourceMappingService {
         return string.Join(".", namespaces);
     }
 
-    private static SourceLocationSnapshot ToLocation(SyntaxTree tree, Location location, string file) {
+    private static SourceLocationSnapshot ToLocation(Location location, string file) {
         var span = location.GetLineSpan();
         return new SourceLocationSnapshot {
             File = file,

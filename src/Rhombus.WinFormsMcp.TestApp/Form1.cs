@@ -1,14 +1,14 @@
 namespace Rhombus.WinFormsMcp.TestApp;
 
 public partial class Form1 : Form {
-    private readonly BindingSource bindingSource = new();
+    private readonly BindingSource _bindingSource = new();
 
     public Form1() {
         InitializeComponent();
-        bindingSource.DataSource = new BindingModel();
+        _bindingSource.DataSource = new BindingModel();
         textBox.DataBindings.Add(
             nameof(TextBox.Text),
-            bindingSource,
+            _bindingSource,
             nameof(BindingModel.DeviceName),
             formattingEnabled: true,
             updateMode: DataSourceUpdateMode.OnPropertyChanged);
