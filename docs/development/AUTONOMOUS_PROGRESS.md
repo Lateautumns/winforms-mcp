@@ -38,15 +38,15 @@ Stage 0 - PR #1 RuntimeBridge lifecycle final hardening.
 
 ## CI
 
-- Core CI: pending after push.
-- External CI: Claude Code Review may remain blocked by missing fork-side Claude GitHub App or token; do not treat that as core code failure.
+- Core CI: green on PR and push runs for commit 15c711397910f50c640075c10a12a5116bce6b0f.
+- External CI: Claude Code Review failed because the Claude Code GitHub App is not installed on the fork; this is external service setup, not a Core CI failure.
 
 ## Git
 
 - Branch: feature/v11-foundation-refactor.
-- Commit: pending.
+- Commit: 15c711397910f50c640075c10a12a5116bce6b0f (fix: harden runtime bridge lifecycle).
 - PR: #1, Draft, Lateautumns/winforms-mcp.
-- Working Tree: pending commit.
+- Working Tree: clean after Stage 0 commit/push.
 
 ## Risks
 
@@ -55,9 +55,8 @@ Stage 0 - PR #1 RuntimeBridge lifecycle final hardening.
 
 ## Next
 
-- Commit and push Stage 0 lifecycle hardening.
-- Verify PR #1 Core CI.
-- After Core CI is green, record PR #1 ready for human review and proceed to Stage 1 stacked branch setup.
+- PR #1 is ready for human review after Core CI green.
+- Proceed to Stage 1 stacked branch setup from feature/v11-foundation-refactor.
 
 ## Hard Blocker
 
