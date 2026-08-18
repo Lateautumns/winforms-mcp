@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows.Forms;
 
+using Rhombus.WinFormsMcp.RuntimeBridge.Inspection.Providers;
 using Rhombus.WinFormsMcp.RuntimeContracts;
 
 namespace Rhombus.WinFormsMcp.RuntimeBridge.Inspection;
@@ -24,9 +25,11 @@ internal sealed class ManagedControlInspector {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly RuntimeBridgeOptions _options;
     private readonly ControlIdentityRegistry _identityRegistry = new();
+    private readonly IControlProviderRegistry _providerRegistry;
 
-    public ManagedControlInspector(RuntimeBridgeOptions options) {
+    public ManagedControlInspector(RuntimeBridgeOptions options, IControlProviderRegistry? providerRegistry = null) {
         _options = options;
+        _providerRegistry = providerRegistry ?? ControlProviderRegistry.CreateDefault();
     }
 
     public BridgeHello GetHello() {
@@ -41,7 +44,8 @@ internal sealed class ManagedControlInspector {
                 BridgeVersion = _options.BridgeVersion
             },
             Capabilities = [
-                "controlTree", "properties", "layout", "ancestors", "windowTree", "bindings", "uiThreadSnapshots"
+                "controlTree", "properties", "layout", "ancestors", "windowTree", "bindings",
+                "uiThreadSnapshots", "providerSemantics"
             ]
         };
     }
@@ -97,6 +101,12 @@ internal sealed class ManagedControlInspector {
             result.Layout = BuildLayout(control);
         if (requestedSections.Contains("bindings"))
             result.Bindings = ReadBindings(control);
+        if (requestedSections.Contains("provider") || requestedSections.Contains("semantic")) {
+            var provider = _providerRegistry.Resolve(control);
+            result.Provider = DescribeProvider(provider, control);
+            if (requestedSections.Contains("semantic"))
+                result.Semantic = InspectProvider(provider, control, result.Provider);
+        }
 
         return result;
     }
@@ -129,6 +139,46 @@ internal sealed class ManagedControlInspector {
     public List<ControlBindingSnapshot> GetBindings(int processId, string controlId) {
         EnsureCurrentProcess(processId);
         return ReadBindings(RequireControl(controlId));
+    }
+
+    private ControlProviderSnapshot DescribeProvider(IControlProvider provider, Control control) {
+        try {
+            return provider.Describe(control);
+        }
+        catch (Exception ex) {
+            return new ControlProviderSnapshot {
+                ProviderName = provider.ProviderName,
+                Priority = provider.Priority,
+                RuntimeType = control.GetType().FullName ?? control.GetType().Name,
+                SemanticType = "unknown",
+                Capabilities = [$"describe_error:{ex.GetType().Name}"]
+            };
+        }
+    }
+
+    private ControlSemanticSnapshot InspectProvider(
+        IControlProvider provider,
+        Control control,
+        ControlProviderSnapshot providerSnapshot) {
+        try {
+            return provider.Inspect(
+                control,
+                new ControlProviderContext(
+                    _options.MaxDepth,
+                    _options.MaxNodes,
+                    GetControlId,
+                    ToJsonValue));
+        }
+        catch (Exception ex) {
+            return new ControlSemanticSnapshot {
+                ProviderName = provider.ProviderName,
+                RuntimeType = providerSnapshot.RuntimeType,
+                SemanticType = providerSnapshot.SemanticType,
+                Errors = {
+                    ["<provider>"] = ex.Message
+                }
+            };
+        }
     }
 
     private ControlTreeNode BuildTreeNode(

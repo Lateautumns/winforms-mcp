@@ -94,9 +94,9 @@ internal static class ToolDefinitionCatalog {
         Define(ToolNames.GetControlTree, "Return a bounded managed Control.Controls tree from a target WinForms process.", Props(
             ("pid", Integer("Target process ID")), ("rootId", String("Optional managed control ID")),
             ("maxDepth", Integer("Maximum tree depth")), ("maxNodes", Integer("Maximum returned nodes"))), "pid"),
-        Define(ToolNames.InspectControl, "Inspect one managed WinForms control's identity, state, safe properties, and layout.", Props(
+        Define(ToolNames.InspectControl, "Inspect one managed WinForms control's identity, state, safe properties, layout, and optional provider semantics.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID")),
-            ("sections", Array("identity, state, properties, layout, or bindings", "string")),
+            ("sections", Array("identity, state, properties, layout, bindings, provider, or semantic", "string")),
             ("includeProperties", Array("Additional safe property names to read", "string"))), "pid", "controlId"),
         Define(ToolNames.GetAncestors, "Return the managed parent chain for a control, nearest parent first.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID"))), "pid", "controlId"),

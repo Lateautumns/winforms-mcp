@@ -113,12 +113,51 @@ public sealed class ControlBindingSnapshot {
     public string ControlUpdateMode { get; set; } = string.Empty;
 }
 
+public sealed class ControlProviderSnapshot {
+    public string ProviderName { get; set; } = string.Empty;
+    public int Priority { get; set; }
+    public string RuntimeType { get; set; } = string.Empty;
+    public string SemanticType { get; set; } = string.Empty;
+    public string? ProviderVersion { get; set; }
+    public List<string> Capabilities { get; set; } = new();
+}
+
+public sealed class SemanticNodeSnapshot {
+    public string Kind { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public string? Text { get; set; }
+    public string? Value { get; set; }
+    public int? Index { get; set; }
+    public string? ControlId { get; set; }
+    public Dictionary<string, JsonElement> State { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, JsonElement> Properties { get; set; } = new(StringComparer.Ordinal);
+    public List<SemanticNodeSnapshot> Children { get; set; } = new();
+    public int ChildCount { get; set; }
+    public bool Truncated { get; set; }
+}
+
+public sealed class ControlSemanticSnapshot {
+    public string ProviderName { get; set; } = string.Empty;
+    public string RuntimeType { get; set; } = string.Empty;
+    public string SemanticType { get; set; } = string.Empty;
+    public Dictionary<string, JsonElement> State { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, JsonElement> Properties { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> Errors { get; set; } = new(StringComparer.Ordinal);
+    public List<string> SupportedInteractionHints { get; set; } = new();
+    public List<SemanticNodeSnapshot> Children { get; set; } = new();
+    public int ChildCount { get; set; }
+    public bool Truncated { get; set; }
+    public Dictionary<string, JsonElement> Metadata { get; set; } = new(StringComparer.Ordinal);
+}
+
 public sealed class ControlInspectionSnapshot {
     public ControlSummary Summary { get; set; } = new();
     public ControlStateSnapshot State { get; set; } = new();
     public ControlPropertiesSnapshot Properties { get; set; } = new();
     public ControlLayoutSnapshot Layout { get; set; } = new();
     public List<ControlBindingSnapshot> Bindings { get; set; } = new();
+    public ControlProviderSnapshot? Provider { get; set; }
+    public ControlSemanticSnapshot? Semantic { get; set; }
     public UiaCorrelation? Correlation { get; set; }
 }
 

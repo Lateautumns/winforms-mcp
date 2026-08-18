@@ -28,16 +28,23 @@ internal sealed class InspectControlToolHandler : IToolHandler {
                 ToolArguments.GetStringArray(arguments, "includeProperties"),
                 cancellationToken).ConfigureAwait(false);
             snapshot.Correlation = _correlation.TryCorrelate(snapshot.Summary.Identity);
-            return ToolJson.Result(new {
-                success = true,
-                identity = snapshot.Summary.Identity,
-                summary = snapshot.Summary,
-                state = snapshot.State,
-                properties = snapshot.Properties,
-                layout = snapshot.Layout,
-                bindings = snapshot.Bindings,
-                correlation = snapshot.Correlation
-            });
+            var result = new Dictionary<string, object?> {
+                ["success"] = true,
+                ["identity"] = snapshot.Summary.Identity,
+                ["summary"] = snapshot.Summary,
+                ["state"] = snapshot.State,
+                ["properties"] = snapshot.Properties,
+                ["layout"] = snapshot.Layout,
+                ["bindings"] = snapshot.Bindings,
+                ["correlation"] = snapshot.Correlation
+            };
+
+            if (snapshot.Provider is not null)
+                result["provider"] = snapshot.Provider;
+            if (snapshot.Semantic is not null)
+                result["semantic"] = snapshot.Semantic;
+
+            return ToolJson.Result(result);
         }
         catch (RuntimeBridgeException ex) {
             throw RuntimeToolSupport.ToToolException(ex);

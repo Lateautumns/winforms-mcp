@@ -79,9 +79,12 @@ public sealed class RuntimeInspectionTests {
                 Assert.That(inspection.Summary.Identity.Type, Does.EndWith(".Button"));
                 Assert.That(inspection.Summary.Identity.OwnerType, Does.EndWith(".Form1"));
                 Assert.That(status?.Process?.BridgeVersion, Is.EqualTo("1.5.12-beta"));
+                Assert.That(status?.Capabilities, Does.Contain("providerSemantics"));
                 Assert.That(inspection.Properties.Values["Name"].GetString(), Is.EqualTo("clickButton"));
                 Assert.That(inspection.Properties.Values, Does.ContainKey("AccessibleName"));
                 Assert.That(inspection.Layout.Bounds.Width, Is.EqualTo(100));
+                Assert.That(inspection.Provider, Is.Null);
+                Assert.That(inspection.Semantic, Is.Null);
                 Assert.That(ancestors.Select(item => item.Name), Does.Contain("mainPanel"));
                 Assert.That(ancestors.Select(item => item.Name), Does.Contain("TestForm"));
                 Assert.That(bindings, Has.Some.Matches<ControlBindingSnapshot>(binding =>
@@ -92,6 +95,24 @@ public sealed class RuntimeInspectionTests {
                     binding.DataSourceUpdateMode == "OnPropertyChanged"));
                 Assert.That(shallowTree.Truncated, Is.True);
                 Assert.That(windows.SelectMany(FlattenWindows).Select(window => window.Hwnd), Is.Unique);
+            });
+
+            var semanticInspection = await client.InspectControlAsync(
+                process.Id,
+                button.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None);
+            var semantic = semanticInspection.Semantic;
+
+            Assert.Multiple(() => {
+                Assert.That(semanticInspection.Provider?.ProviderName, Is.EqualTo("StandardWinForms"));
+                Assert.That(semanticInspection.Provider?.SemanticType, Is.EqualTo("button"));
+                Assert.That(semantic, Is.Not.Null);
+                Assert.That(semantic!.ProviderName, Is.EqualTo("StandardWinForms"));
+                Assert.That(semantic.SemanticType, Is.EqualTo("button"));
+                Assert.That(semantic.SupportedInteractionHints, Does.Contain("invoke"));
+                Assert.That(semantic.State["enabled"].GetBoolean(), Is.True);
             });
         }
         finally {
