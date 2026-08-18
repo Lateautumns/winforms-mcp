@@ -39,6 +39,11 @@ public interface IAutomationHelper : IDisposable {
     AutomationElement? GetMainWindow(int pid);
 
     /// <summary>
+    /// Get a UIA element from a native window handle.
+    /// </summary>
+    AutomationElement? GetElementFromHandle(IntPtr hwnd, int? pid = null);
+
+    /// <summary>
     /// Find element by AutomationId
     /// </summary>
     AutomationElement? FindByAutomationId(string automationId, AutomationElement? parent = null, int timeoutMs = 5000);

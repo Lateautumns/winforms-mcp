@@ -41,6 +41,21 @@ internal sealed class UiAutomationService {
         }
     }
 
+    public AutomationElement? GetElementFromHandle(IntPtr hwnd, int? pid = null) {
+        if (hwnd == IntPtr.Zero)
+            return null;
+
+        var automation = _context.Automation;
+        try {
+            return pid is > 0 && _desktopService.IsOnHiddenDesktop(pid.Value)
+                ? _desktopService.OnProcessDesktop(pid.Value, () => automation.FromHandle(hwnd))
+                : automation.FromHandle(hwnd);
+        }
+        catch {
+            return null;
+        }
+    }
+
     public AutomationElement? FindByAutomationId(
         string automationId,
         AutomationElement? parent = null,

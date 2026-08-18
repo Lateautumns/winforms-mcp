@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 
 using Rhombus.WinFormsMcp.RuntimeContracts;
 using Rhombus.WinFormsMcp.Server;
+using Rhombus.WinFormsMcp.Server.Automation;
 using Rhombus.WinFormsMcp.Server.Runtime;
 
 namespace Rhombus.WinFormsMcp.Tests.Runtime;
@@ -124,6 +125,116 @@ public sealed class RuntimeInspectionTests {
     }
 
     [Test]
+    [Timeout(45000)]
+    public async Task AntdUITestAppRuntimeBridge_ReturnsProviderSemanticsAndSupportsUiaAction() {
+        var executable = Path.Combine(TestContext.CurrentContext.TestDirectory, "Rhombus.WinFormsMcp.AntdUI.TestApp.exe");
+        Assert.That(File.Exists(executable), Is.True, $"AntdUI test app was not found at {executable}");
+
+        using var process = Process.Start(new ProcessStartInfo {
+            FileName = executable,
+            UseShellExecute = false
+        }) ?? throw new InvalidOperationException("AntdUI test app could not be started.");
+        using var client = new NamedPipeRuntimeBridgeClient(
+            Options.Create(new McpServerOptions {
+                RuntimeBridgeConnectTimeoutMs = 250,
+                RuntimeBridgeRequestTimeoutMs = 3000
+            }),
+            NullLogger<NamedPipeRuntimeBridgeClient>.Instance);
+
+        try {
+            BridgeStatus? status = null;
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < deadline) {
+                status = await client.GetStatusAsync(process.Id, CancellationToken.None);
+                if (status.Available)
+                    break;
+                await Task.Delay(100);
+            }
+
+            Assert.That(status?.Available, Is.True, status?.Error);
+            Assert.That(status?.Capabilities, Does.Contain("providerSemantics"));
+
+            var tree = await client.GetControlTreeAsync(
+                process.Id,
+                null,
+                maxDepth: 6,
+                maxNodes: 200,
+                CancellationToken.None);
+            var input = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdInput");
+            var inspection = await client.InspectControlAsync(
+                process.Id,
+                input.Summary.Identity.ManagedId,
+                ["identity", "state", "layout", "provider", "semantic"],
+                null,
+                CancellationToken.None);
+            var select = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdSelect");
+            var selectInspection = await client.InspectControlAsync(
+                process.Id,
+                select.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None);
+
+            Assert.Multiple(() => {
+                Assert.That(tree.Truncated, Is.False);
+                Assert.That(input.Summary.Identity.Type, Is.EqualTo("AntdUI.Input"));
+                Assert.That(inspection.Provider?.ProviderName, Is.EqualTo("AntdUI"));
+                Assert.That(inspection.Provider?.SemanticType, Is.EqualTo("textbox"));
+                Assert.That(inspection.Provider?.RuntimeType, Is.EqualTo("AntdUI.Input"));
+                Assert.That(inspection.Provider?.ProviderVersion, Is.Not.Empty);
+                Assert.That(inspection.State.Text, Is.EqualTo("Initial input"));
+                Assert.That(inspection.Layout.Bounds.Width, Is.GreaterThan(0));
+                Assert.That(inspection.Semantic?.SemanticType, Is.EqualTo("textbox"));
+                Assert.That(inspection.Semantic?.State["text"].GetString(), Is.EqualTo("Initial input"));
+                Assert.That(inspection.Semantic?.Properties["placeholderText"].GetString(), Is.EqualTo("Search devices"));
+                Assert.That(inspection.Semantic?.Properties["prefixText"].GetString(), Is.EqualTo("SN"));
+                Assert.That(inspection.Semantic?.Properties["suffixText"].GetString(), Is.EqualTo("OK"));
+                Assert.That(inspection.Semantic?.Properties["status"].GetString(), Does.Contain("Success"));
+                Assert.That(selectInspection.Provider?.SemanticType, Is.EqualTo("select"));
+                Assert.That(selectInspection.Semantic?.State["selectedIndex"].GetInt32(), Is.EqualTo(1));
+                Assert.That(selectInspection.Semantic?.State["selectedValue"].GetString(), Is.EqualTo("B"));
+                Assert.That(selectInspection.Semantic?.Children, Has.Count.EqualTo(2));
+            });
+
+            using var automation = new AutomationHelper(logger: NullLogger<AutomationHelper>.Instance);
+            using var session = new SessionManager(automation);
+            var mainWindow = automation.GetMainWindow(process.Id);
+            Assert.That(mainWindow, Is.Not.Null);
+
+            var correlation = new ManagedUiaCorrelationService(session).TryCorrelate(inspection.Summary.Identity);
+            Assert.Multiple(() => {
+                Assert.That(correlation, Is.Not.Null);
+                Assert.That(correlation!.UiaId, Is.Not.Empty);
+                Assert.That(
+                    correlation.Method,
+                    Is.AnyOf("automationId", "nativeWindowHandle", "nativeWindowHandleTraversal"));
+                Assert.That(correlation.Confidence, Is.GreaterThanOrEqualTo(0.85d));
+            });
+
+            var uiaElement = session.GetElement(correlation!.UiaId!);
+            Assert.That(uiaElement, Is.Not.Null);
+            automation.Click(uiaElement!);
+            automation.TypeText(uiaElement!, "Typed via UIA", clearFirst: true);
+
+            var typedInspection = await WaitForRuntimeTextAsync(
+                client,
+                process.Id,
+                input.Summary.Identity.ManagedId,
+                "Typed via UIA");
+
+            Assert.That(typedInspection.State.Text, Is.EqualTo("Typed via UIA"));
+        }
+        finally {
+            if (!process.HasExited) {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+        }
+    }
+
+    [Test]
     public async Task SourceMappingService_MapsDesignerInitializationAndEventSymbol() {
         var root = Path.Combine(Path.GetTempPath(), $"winforms-mcp-source-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
@@ -212,5 +323,27 @@ public sealed class RuntimeInspectionTests {
         yield return window;
         foreach (var child in window.Children.SelectMany(FlattenWindows))
             yield return child;
+    }
+
+    private static async Task<ControlInspectionSnapshot> WaitForRuntimeTextAsync(
+        NamedPipeRuntimeBridgeClient client,
+        int processId,
+        string controlId,
+        string expectedText) {
+        ControlInspectionSnapshot? last = null;
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline) {
+            last = await client.InspectControlAsync(
+                processId,
+                controlId,
+                ["state", "semantic"],
+                null,
+                CancellationToken.None);
+            if (string.Equals(last.State.Text, expectedText, StringComparison.Ordinal))
+                return last;
+            await Task.Delay(100);
+        }
+
+        return last ?? throw new InvalidOperationException("RuntimeBridge did not return a control inspection.");
     }
 }

@@ -58,6 +58,9 @@ public sealed class AutomationHelper : IAutomationHelper {
 
     public AutomationElement? GetMainWindow(int pid) => _uiAutomationService.GetMainWindow(pid);
 
+    public AutomationElement? GetElementFromHandle(IntPtr hwnd, int? pid = null) =>
+        _uiAutomationService.GetElementFromHandle(hwnd, pid);
+
     public AutomationElement? FindByAutomationId(
         string automationId,
         AutomationElement? parent = null,

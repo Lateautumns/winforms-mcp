@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 3 - Provider Architecture complete; Stage 3 Gate passed locally.
+Stage 4 - AntdUI basic control inspection complete; Stage 4 Gate passed locally.
 
 ## Implemented
 
@@ -20,80 +20,98 @@ Stage 3 - Provider Architecture complete; Stage 3 Gate passed locally.
   - ControlProviderRegistry with priority-based resolution.
   - StandardWinFormsProvider fallback.
 - Added optional RuntimeContracts provider and semantic snapshots.
-- Extended winforms_inspect_control with optional provider and semantic sections.
-- Preserved existing MCP tool count and did not add AntdUI-specific tools.
+- Added reflection-based AntdUIProvider for basic AntdUI controls:
+  - Button.
+  - Input.
+  - InputNumber.
+  - Checkbox.
+  - Radio.
+  - Switch.
+  - Select.
+- Added Rhombus.WinFormsMcp.AntdUI.TestApp for real RuntimeBridge E2E coverage.
+- Added AntdUI provider unit tests and AntdUI RuntimeBridge integration tests.
+- Hardened UIA correlation fallback for managed controls using automation id, native HWND lookup, bounded HWND traversal, and process matching.
+- Hardened UI text input fallback for controls without a writable ValuePattern by trying writable child value patterns, STA clipboard paste, and paced SendKeys fallback.
 
 ## Architecture
 
 - RuntimeBridge remains read-only inspection infrastructure.
 - RuntimeBridge core, RuntimeContracts, and Server core still have no AntdUI compile-time dependency.
-- Provider matching is centralized in ControlProviderRegistry.
-- StandardWinFormsProvider handles common WinForms controls and unknown third-party controls as fallback.
+- AntdUI compile-time dependency is limited to Rhombus.WinFormsMcp.AntdUI.TestApp.
+- AntdUIProvider uses controlled reflection over allowlisted public properties with per-property error isolation.
+- Provider matching remains centralized in ControlProviderRegistry.
+- StandardWinFormsProvider remains the fallback for common WinForms controls and unknown third-party controls.
 - Protocol remains RuntimeBridge Protocol v1; semantic data is added through optional fields.
 - Provider/semantic snapshots are built on the WinForms UI thread through the existing RuntimeBridge inspector path.
+- Managed RuntimeBridge remains the understanding layer; UIA remains the action layer.
 
 ## MCP Changes
 
 - Added: none.
-- Changed: winforms_inspect_control accepts optional sections provider and semantic.
-- Unchanged: existing MCP tool names, required arguments, UIA tools, RuntimeBridge read-only model, and tool count.
+- Changed: none to tool names or required parameters.
+- Extended: winforms_inspect_control can return AntdUI provider and semantic data through the existing optional provider/semantic sections.
+- Unchanged: existing MCP tool count remains 40; no AntdUI-specific MCP tools were added.
 
 ## Build
 
-- Stage 3 local Gate passed.
+- Stage 4 local Gate passed.
+- Format: passed.
+- Format verify: passed.
+- Restore: passed.
 - Release solution build: 0 warnings, 0 errors.
 - RendererHost multi-target Release build: 0 warnings, 0 errors.
 
 ## Tests
 
-- Targeted runtime/provider tests: 22 passed, 0 skipped, 0 failed.
-- Full local test run: 281 passed, 44 skipped, 0 failed, 325 total.
+- Full local test run: 329 total, 285 passed, 44 skipped, 0 failed.
 - New coverage:
-  - Standard provider fallback.
-  - Provider priority.
-  - Unknown third-party fallback.
-  - Semantic section optional.
-  - Existing runtime inspection remains backward compatible.
-  - Existing UIA/MCP tool surface unchanged at 40 tools.
+  - AntdUI provider detection and fallback behavior.
+  - AntdUI Button, Input, InputNumber, Checkbox, Radio, Switch, and Select semantics.
+  - Select item semantic children with bounded maxNodes truncation.
+  - AntdUI RuntimeBridge E2E through the test app.
+  - Managed/UIA correlation fallback for AntdUI controls.
+  - UIA text input fallback for controls without direct writable ValuePattern.
+  - Existing MCP tool surface unchanged at 40 tools.
 
 ## CI
 
 - PR #1 Core CI: green.
 - PR #1 External CI: Claude Code Review fails because the Claude Code GitHub App is not installed on the fork.
-- PR #2 Core CI before Stage 3 commit: green on commit 6a3b8eaada2e804d364c8429f46ec118ad8d51b2.
+- PR #2 Core CI before Stage 4 commit: green on commit 8d66583 feat: add control provider architecture.
 - PR #2 External CI: Claude Code Review fails for the same missing GitHub App setup.
-- Stage 3 commit CI: pending push.
+- Stage 4 commit CI: pending push.
 
 ## Git
 
 - Base Branch: feature/v11-foundation-refactor.
 - Current Branch: feature/v14-antdui-provider.
-- Current Head Before Stage 3 Commit: 6a3b8eaada2e804d364c8429f46ec118ad8d51b2.
+- Current Head Before Stage 4 Commit: 8d66583 feat: add control provider architecture.
 - Draft PR: #2, target feature/v11-foundation-refactor.
-- Working Tree: pending Stage 3 provider architecture commit.
+- Working Tree: pending Stage 4 AntdUI basic control inspection commit.
 
 ## Risks
 
 - AntdUI repository currently contains untracked .codegraph directories; treat them as local analysis artifacts and never commit them.
-- StandardWinFormsProvider intentionally returns bounded, summary-level semantic data only.
+- AntdUIProvider intentionally reads only allowlisted public properties and bounded item summaries.
 - Provider implementations must continue avoiding arbitrary runtime execution, setters, or method invocation.
-- Future AntdUIProvider must use controlled reflection and must not add AntdUI compile-time dependencies to core projects.
+- Future AntdUI semantic support for Tabs, Tree, Table, and Menu should stay within the existing provider/semantic architecture and avoid new AntdUI-specific MCP tools unless compatibility requires it.
+- Local SDK note: this machine lacks the repository-requested .NET 8 SDK, so global.json was temporarily pointed at local .NET 9 for the Gate and restored before commit.
 
 ## Next
 
-- Commit and push Stage 3 provider architecture.
-- Check PR #2 Core CI for the Stage 3 commit.
-- If Core CI is green, enter Stage 4 AntdUI basic control inspection.
+- Commit and push Stage 4 AntdUI basic control inspection.
+- Check PR #2 Core CI for the Stage 4 commit.
+- If Core CI is green, enter Stage 5 complex AntdUI semantic tree inspection for Tabs, Tree, Table, and Menu.
 
 ## Hard Blocker
 
 None.
 
-## Stage 3 Gate Evidence
+## Stage 4 Gate Evidence
 
+- dotnet format Rhombus.WinFormsMcp.sln --verbosity quiet: passed.
 - dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes --verbosity quiet: passed.
 - dotnet restore Rhombus.WinFormsMcp.sln: passed.
 - dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false: passed with 0 warnings and 0 errors.
 - dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false: passed with 0 warnings and 0 errors.
-- dotnet test Rhombus.WinFormsMcp.sln --configuration Release --no-build: 325 total, 281 passed, 44 skipped, 0 failed.
-- Local SDK note: this machine lacks the repository-requested .NET 8 SDK, so global.json was temporarily pointed at local .NET 9 for the Gate and restored before commit.
+- dotnet test Rhombus.WinFormsMcp.sln --configuration Release --no-build: 329 total, 285 passed, 44 skipped, 0 failed.

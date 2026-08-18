@@ -16,7 +16,10 @@ internal sealed class ControlProviderRegistry : IControlProviderRegistry {
     }
 
     public static ControlProviderRegistry CreateDefault() =>
-        new([new StandardWinFormsProvider()]);
+        new([
+            new AntdUIProvider(),
+            new StandardWinFormsProvider()
+        ]);
 
     public IControlProvider Resolve(Control control) {
         foreach (var provider in _providers) {
