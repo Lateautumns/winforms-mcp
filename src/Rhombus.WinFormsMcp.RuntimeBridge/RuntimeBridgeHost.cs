@@ -21,7 +21,10 @@ public sealed class RuntimeBridgeHost : IDisposable {
     private readonly UiThreadDispatcher _dispatcher;
     private readonly ManagedControlInspector _inspector;
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly object _lifecycleGate = new();
     private Task? _listenerTask;
+    private Task? _disposeTask;
+    private NamedPipeServerStream? _activeServer;
     private bool _disposed;
 
     internal RuntimeBridgeHost(RuntimeBridgeOptions options, System.Windows.Forms.Control? invoker) {
@@ -30,42 +33,94 @@ public sealed class RuntimeBridgeHost : IDisposable {
         _inspector = new ManagedControlInspector(options);
     }
 
-    public bool IsRunning => _listenerTask is { IsCompleted: false } && !_disposed;
+    public bool IsRunning {
+        get {
+            lock (_lifecycleGate)
+                return _listenerTask is { IsCompleted: false } && !_disposed;
+        }
+    }
+
     public string PipeName => _options.EffectivePipeName;
 
     internal void Start() {
-        if (_listenerTask is not null)
-            return;
-        _listenerTask = Task.Run(ListenLoopAsync);
+        lock (_lifecycleGate) {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(RuntimeBridgeHost));
+            if (_listenerTask is null)
+                _listenerTask = Task.Run(ListenLoopAsync);
+        }
     }
 
     public void Dispose() {
-        if (_disposed)
-            return;
-        _disposed = true;
-        _shutdown.Cancel();
-        _shutdown.Dispose();
+        StopAsync().GetAwaiter().GetResult();
+    }
+
+    public Task StopAsync() {
+        Task disposeTask;
+        lock (_lifecycleGate) {
+            if (_disposeTask is null) {
+                _disposed = true;
+                _shutdown.Cancel();
+                try {
+                    _activeServer?.Dispose();
+                }
+                catch (Exception ex) {
+                    Trace(ex);
+                }
+
+                _disposeTask = CompleteDisposeAsync(_listenerTask);
+            }
+
+            disposeTask = _disposeTask;
+        }
+
+        return disposeTask;
     }
 
     private async Task ListenLoopAsync() {
-        while (!_shutdown.IsCancellationRequested) {
+        var cancellationToken = _shutdown.Token;
+        while (!cancellationToken.IsCancellationRequested) {
+            NamedPipeServerStream? server = null;
             try {
-                using var server = new NamedPipeServerStream(
+                server = new NamedPipeServerStream(
                     PipeName,
                     PipeDirection.InOut,
                     1,
                     PipeTransmissionMode.Byte,
                     PipeOptions.Asynchronous);
-                await WaitForConnectionAsync(server, _shutdown.Token).ConfigureAwait(false);
-                await HandleClientAsync(server, _shutdown.Token).ConfigureAwait(false);
+
+                lock (_lifecycleGate) {
+                    if (_disposed || cancellationToken.IsCancellationRequested)
+                        break;
+                    _activeServer = server;
+                }
+
+                await WaitForConnectionAsync(server, cancellationToken).ConfigureAwait(false);
+                await HandleClientAsync(server, cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
                 break;
             }
             catch (Exception ex) {
                 Trace(ex);
-                if (!_shutdown.IsCancellationRequested)
-                    await Task.Delay(100, _shutdown.Token).ConfigureAwait(false);
+                if (!cancellationToken.IsCancellationRequested) {
+                    try {
+                        await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
+                        break;
+                    }
+                }
+            }
+            finally {
+                if (server is not null) {
+                    lock (_lifecycleGate) {
+                        if (ReferenceEquals(_activeServer, server))
+                            _activeServer = null;
+                    }
+
+                    server.Dispose();
+                }
             }
         }
     }
@@ -77,18 +132,32 @@ public sealed class RuntimeBridgeHost : IDisposable {
         };
 
         while (!cancellationToken.IsCancellationRequested) {
-            var readTask = reader.ReadLineAsync();
-            var cancelTask = Task.Delay(Timeout.Infinite, cancellationToken);
-            var completed = await Task.WhenAny(readTask, cancelTask).ConfigureAwait(false);
-            if (completed != readTask)
+            string? line;
+            try {
+                line = await ReadLineAsync(reader, stream, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
                 break;
+            }
+            catch (IOException) when (cancellationToken.IsCancellationRequested) {
+                break;
+            }
 
-            var line = await readTask.ConfigureAwait(false);
             if (line is null)
                 break;
             if (line.Length > _options.MaxRequestBytes) {
-                await WriteResponseAsync(writer, CreateError(string.Empty, "request_too_large", "Runtime request exceeds the configured size limit.", false))
-                    .ConfigureAwait(false);
+                try {
+                    await WriteResponseAsync(
+                        writer,
+                        CreateError(
+                            string.Empty,
+                            "request_too_large",
+                            "Runtime request exceeds the configured size limit.",
+                            false)).ConfigureAwait(false);
+                }
+                catch (IOException) when (cancellationToken.IsCancellationRequested) {
+                }
+
                 break;
             }
 
@@ -102,7 +171,15 @@ public sealed class RuntimeBridgeHost : IDisposable {
                 response = CreateError(string.Empty, GetErrorCode(ex), ex.Message, ex is IOException or TimeoutException, ex);
             }
 
-            await WriteResponseAsync(writer, response).ConfigureAwait(false);
+            if (cancellationToken.IsCancellationRequested)
+                break;
+
+            try {
+                await WriteResponseAsync(writer, response).ConfigureAwait(false);
+            }
+            catch (IOException) when (cancellationToken.IsCancellationRequested) {
+                break;
+            }
         }
     }
 
@@ -183,11 +260,54 @@ public sealed class RuntimeBridgeHost : IDisposable {
     }
 
     private static async Task WaitForConnectionAsync(NamedPipeServerStream server, CancellationToken cancellationToken) {
-        var waitTask = server.WaitForConnectionAsync();
-        var cancelTask = Task.Delay(Timeout.Infinite, cancellationToken);
-        if (await Task.WhenAny(waitTask, cancelTask).ConfigureAwait(false) != waitTask)
-            cancellationToken.ThrowIfCancellationRequested();
-        await waitTask.ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        using var registration = cancellationToken.Register(
+            static state => ((NamedPipeServerStream)state!).Dispose(),
+            server);
+        try {
+            await server.WaitForConnectionAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested) {
+            throw new OperationCanceledException(cancellationToken);
+        }
+        catch (IOException) when (cancellationToken.IsCancellationRequested) {
+            throw new OperationCanceledException(cancellationToken);
+        }
+    }
+
+    private static async Task<string?> ReadLineAsync(
+        StreamReader reader,
+        Stream stream,
+        CancellationToken cancellationToken) {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var registration = cancellationToken.Register(
+            static state => ((Stream)state!).Dispose(),
+            stream);
+        try {
+            return await reader.ReadLineAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested) {
+            return null;
+        }
+        catch (IOException) when (cancellationToken.IsCancellationRequested) {
+            return null;
+        }
+    }
+
+    private async Task CompleteDisposeAsync(Task? listenerTask) {
+        try {
+            if (listenerTask is not null && listenerTask.Id != Task.CurrentId)
+                await listenerTask.ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            Trace(ex);
+        }
+        finally {
+            // The listener captured the token and must be fully stopped before
+            // its source is released. This also makes concurrent Dispose calls
+            // observe the same completed shutdown task.
+            _shutdown.Dispose();
+        }
     }
 
     private static async Task WriteResponseAsync(StreamWriter writer, RuntimeResponse response) {

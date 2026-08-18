@@ -12,6 +12,9 @@
     <Description>Read-only in-process WinForms runtime inspection bridge.</Description>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Rhombus.WinFormsMcp.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Rhombus.WinFormsMcp.RuntimeContracts\Rhombus.WinFormsMcp.RuntimeContracts.csproj" />
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>

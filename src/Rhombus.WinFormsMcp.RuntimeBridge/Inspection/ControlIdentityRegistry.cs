@@ -7,17 +7,17 @@ namespace Rhombus.WinFormsMcp.RuntimeBridge.Inspection;
 
 internal sealed class ControlIdentityRegistry {
     private readonly object _gate = new();
-    private readonly Dictionary<Control, string> _ids = new(ReferenceEqualityComparer.Instance);
+    private readonly ConditionalWeakTable<Control, IdHolder> _ids = new();
     private readonly Dictionary<string, WeakReference<Control>> _controls = new(StringComparer.Ordinal);
     private int _nextId = 1;
 
     public string GetOrCreateId(Control control) {
         lock (_gate) {
             if (_ids.TryGetValue(control, out var existing))
-                return existing;
+                return existing.Id;
 
             var id = $"ctrl_{_nextId++}";
-            _ids[control] = id;
+            _ids.Add(control, new IdHolder(id));
             _controls[id] = new WeakReference<Control>(control);
             return id;
         }
@@ -43,9 +43,9 @@ internal sealed class ControlIdentityRegistry {
         }
     }
 
-    private sealed class ReferenceEqualityComparer : IEqualityComparer<Control> {
-        public static readonly ReferenceEqualityComparer Instance = new();
-        public bool Equals(Control? x, Control? y) => ReferenceEquals(x, y);
-        public int GetHashCode(Control obj) => RuntimeHelpers.GetHashCode(obj);
+    private sealed class IdHolder {
+        public IdHolder(string id) => Id = id;
+
+        public string Id { get; }
     }
 }

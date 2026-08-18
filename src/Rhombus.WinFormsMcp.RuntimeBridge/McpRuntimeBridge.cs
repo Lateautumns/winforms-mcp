@@ -23,9 +23,17 @@ public static class McpRuntimeBridge {
     }
 
     public static void Stop() {
+        StopAsync().GetAwaiter().GetResult();
+    }
+
+    public static async Task StopAsync() {
+        RuntimeBridgeHost? current;
         lock (Gate) {
-            _current?.Dispose();
+            current = _current;
             _current = null;
         }
+
+        if (current is not null)
+            await current.StopAsync().ConfigureAwait(false);
     }
 }
