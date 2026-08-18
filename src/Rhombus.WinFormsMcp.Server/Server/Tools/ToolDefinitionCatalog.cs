@@ -1,0 +1,125 @@
+using System.Text.Json;
+
+using ModelContextProtocol.Protocol;
+
+namespace Rhombus.WinFormsMcp.Server.Tools;
+
+internal static class ToolDefinitionCatalog {
+    public static IList<Tool> All { get; } = [
+        Define(ToolNames.FindElement, "Find one UI element and cache it for later calls.", Props(
+            ("automationId", String("AutomationId to match")), ("name", String("Accessible name to match")),
+            ("className", String("Window class name to match")), ("controlType", String("UIA control type to match")),
+            ("parent", String("Optional cached parent element ID")))),
+        Define(ToolNames.FindElements, "Find all UI elements matching the supplied criteria.", Props(
+            ("automationId", String("AutomationId to match")), ("name", String("Accessible name to match")),
+            ("className", String("Window class name to match")), ("controlType", String("UIA control type to match")),
+            ("parent", String("Optional cached parent element ID")))),
+        Define(ToolNames.ClickElement, "Click a cached UI element.", Props(
+            ("elementId", String("Cached element ID")), ("doubleClick", Boolean("Perform a double click"))), "elementId"),
+        Define(ToolNames.TypeText, "Type text using keyboard simulation on the visible desktop.", Props(
+            ("elementId", String("Cached element ID")), ("text", String("Text to type")),
+            ("clearFirst", Boolean("Clear existing text first"))), "elementId", "text"),
+        Define(ToolNames.SetValue, "Set text through UIA ValuePattern; works on hidden desktops.", Props(
+            ("elementId", String("Cached element ID")), ("value", String("Value to set"))), "elementId", "value"),
+        Define(ToolNames.GetProperty, "Read a UIA property or pattern value from a cached element.", Props(
+            ("elementId", String("Cached element ID")), ("propertyName", String("Property name"))), "elementId", "propertyName"),
+        Define(ToolNames.LaunchApp, "Launch a WinForms application and return its process ID.", Props(
+            ("path", String("Executable path")), ("arguments", String("Optional command-line arguments")),
+            ("workingDirectory", String("Optional working directory"))), "path"),
+        Define(ToolNames.AttachToProcess, "Attach to a running process by PID or process name.", Props(
+            ("pid", Integer("Process ID")), ("processName", String("Process name without extension")))),
+        Define(ToolNames.CloseApp, "Close an application gracefully or forcefully.", Props(
+            ("pid", Integer("Process ID")), ("force", Boolean("Kill instead of sending a close request"))), "pid"),
+        Define(ToolNames.GetProcessStatus, "Return process state, exit code, responsiveness, title, and stderr.", Props(
+            ("pid", Integer("Process ID"))), "pid"),
+        Define(ToolNames.TakeScreenshot, "Capture a process window or cached element and return the PNG as base64 image content.", Props(
+            ("pid", Integer("Optional process ID")), ("elementId", String("Optional cached element ID")),
+            ("outputPath", String("Optional path where the PNG is also saved")))),
+        Define(ToolNames.ElementExists, "Check whether an element exists by AutomationId.", Props(
+            ("automationId", String("AutomationId to find"))), "automationId"),
+        Define(ToolNames.WaitForElement, "Wait for an element to appear by AutomationId.", Props(
+            ("automationId", String("AutomationId to wait for")), ("timeoutMs", Integer("Maximum wait in milliseconds"))), "automationId"),
+        Define(ToolNames.DragDrop, "Drag one cached element onto another on the visible desktop.", Props(
+            ("sourceElementId", String("Cached source element ID")), ("targetElementId", String("Cached target element ID"))),
+            "sourceElementId", "targetElementId"),
+        Define(ToolNames.SendKeys, "Send keyboard input using SendKeys syntax.", Props(
+            ("keys", String("SendKeys expression")), ("pid", Integer("Optional process to focus"))), "keys"),
+        Define(ToolNames.SelectItem, "Select an item by text or zero-based index.", Props(
+            ("elementId", String("Cached selection control ID")), ("value", String("Item text")),
+            ("index", Integer("Zero-based item index"))), "elementId"),
+        Define(ToolNames.ClickMenuItem, "Navigate and click a menu item by path.", Props(
+            ("menuPath", Array("Menu labels from root to target", "string")), ("pid", Integer("Optional process ID"))), "menuPath"),
+        Define(ToolNames.RenderForm, "Render a WinForms Designer file to a PNG without building the target project.", Props(
+            ("designerFilePath", String("Designer.cs or companion .cs path")),
+            ("outputPath", String("Optional path where the PNG is also saved"))), "designerFilePath"),
+        Define(ToolNames.GetElementTree, "Return a bounded UI Automation tree and cache every returned element.", Props(
+            ("pid", Integer("Process whose main window is the root")), ("elementId", String("Optional cached root element ID")),
+            ("depth", Integer("Maximum traversal depth")), ("maxElements", Integer("Maximum returned elements")))),
+        Define(ToolNames.WaitForCondition, "Wait for an element property to satisfy a comparison.", Props(
+            ("elementId", String("Cached element ID")), ("propertyName", String("Property to poll")),
+            ("expectedValue", String("Expected value")), ("comparison", String("equals, contains, not_equals, greater_than, or less_than")),
+            ("timeoutMs", Integer("Maximum wait in milliseconds"))), "elementId", "propertyName", "expectedValue"),
+        Define(ToolNames.ToggleElement, "Toggle a checkbox, radio button, or toggle control.", Props(
+            ("elementId", String("Cached toggle element ID")), ("desiredState", String("on, off, or indeterminate"))), "elementId"),
+        Define(ToolNames.ScrollElement, "Scroll a control through UIA ScrollPattern.", Props(
+            ("elementId", String("Cached scrollable element ID")), ("direction", String("up, down, left, or right")),
+            ("amount", Integer("Number of units")), ("scrollType", String("line or page"))), "elementId", "direction"),
+        Define(ToolNames.GetTableData, "Read paged data from a grid or table.", Props(
+            ("elementId", String("Cached grid element ID")), ("startRow", Integer("First row index")),
+            ("rowCount", Integer("Maximum row count")), ("columns", Array("Optional column indices", "integer"))), "elementId"),
+        Define(ToolNames.SetTableCell, "Set a grid cell value.", Props(
+            ("elementId", String("Cached grid element ID")), ("row", Integer("Zero-based row")),
+            ("column", Integer("Zero-based column")), ("value", String("New value"))), "elementId", "row", "column", "value"),
+        Define(ToolNames.ManageWindow, "Minimize, maximize, restore, move, resize, show, hide, or focus a window.", Props(
+            ("pid", Integer("Process ID")), ("action", String("Window action")), ("width", Integer("Optional width")),
+            ("height", Integer("Optional height")), ("x", Integer("Optional X coordinate")), ("y", Integer("Optional Y coordinate"))), "pid", "action"),
+        Define(ToolNames.ListWindows, "List top-level and owned windows for a process.", Props(
+            ("pid", Integer("Process ID"))), "pid"),
+        Define(ToolNames.GetFocusedElement, "Return and cache the currently focused UIA element.", Props(
+            ("pid", Integer("Optional process filter")))),
+        Define(ToolNames.RaiseEvent, "Invoke a supported action on a cached element.", Props(
+            ("elementId", String("Cached element ID")), ("eventName", String("Event or action name"))), "elementId", "eventName"),
+        Define(ToolNames.ListenForEvent, "Wait for a UI Automation event.", Props(
+            ("elementId", String("Optional cached element ID")), ("eventType", String("UIA event type")),
+            ("timeoutMs", Integer("Maximum wait in milliseconds"))), "eventType"),
+        Define(ToolNames.OpenContextMenu, "Open a context menu and cache its root element.", Props(
+            ("elementId", String("Cached target element ID"))), "elementId"),
+        Define(ToolNames.GetClipboard, "Read text from the Windows clipboard.", Props()),
+        Define(ToolNames.SetClipboard, "Write text to the Windows clipboard.", Props(
+            ("text", String("Clipboard text"))), "text"),
+        Define(ToolNames.ReadTooltip, "Read tooltip text associated with a cached element.", Props(
+            ("elementId", String("Cached element ID"))), "elementId")
+    ];
+
+    private static Tool Define(
+        string name,
+        string description,
+        Dictionary<string, object> properties,
+        params string[] required) {
+        var schema = new Dictionary<string, object> {
+            ["type"] = "object",
+            ["properties"] = properties,
+            ["additionalProperties"] = false
+        };
+        if (required.Length > 0)
+            schema["required"] = required;
+
+        return new Tool {
+            Name = name,
+            Description = description,
+            InputSchema = JsonSerializer.SerializeToElement(schema)
+        };
+    }
+
+    private static Dictionary<string, object> Props(params (string Name, object Schema)[] properties) =>
+        properties.ToDictionary(property => property.Name, property => property.Schema, StringComparer.Ordinal);
+
+    private static object String(string description) => new { type = "string", description };
+    private static object Integer(string description) => new { type = "integer", description };
+    private static object Boolean(string description) => new { type = "boolean", description };
+    private static object Array(string description, string itemType) => new {
+        type = "array",
+        description,
+        items = new { type = itemType }
+    };
+}

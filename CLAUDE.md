@@ -63,13 +63,21 @@ dotnet pack src/Rhombus.WinFormsMcp.Server/Rhombus.WinFormsMcp.Server.csproj -c 
 ### Core Components
 
 1. **Rhombus.WinFormsMcp.Server** (src/Rhombus.WinFormsMcp.Server/)
-   - `Program.cs`: MCP server implementation with JSON-RPC 2.0 over stdio transport. Contains 33 tool implementations and SessionManager for element caching.
-   - `Automation/AutomationHelper.cs`: Core FlaUI wrapper with 40+ automation methods. Provides process management, element discovery, UI interaction, validation, window management, clipboard, and event capabilities.
+   - `Program.cs`: Host and dependency-injection composition root.
+   - `Server/McpServerRegistration.cs`: Official ModelContextProtocol SDK stdio server registration and protocol handlers.
+   - `Server/ToolRegistry.cs`: Validates tool definitions/handlers and applies cancellation, timeout, timing, telemetry, and structured-error behavior.
+   - `Server/Tools/`: Separate definition catalog plus one handler per MCP tool, grouped by Process, Automation, Inspection, Rendering, and Diagnostics.
+   - `Automation/AutomationHelper.cs`: Backward-compatible facade over focused process, UIA, input, screenshot, window, clipboard, hidden-desktop, and event services.
 
-2. **Rhombus.WinFormsMcp.TestApp** (src/Rhombus.WinFormsMcp.TestApp/)
+2. **Rhombus.WinFormsMcp.Rendering / RendererHost**
+   - DesignSurface renderer and TFM-specific out-of-process hosts.
+   - Hosts are terminated on startup/request timeout or protocol failure and recreated on demand.
+   - Render cache keys include designer content, companion content, runtime TFM, and referenced DLL metadata.
+
+3. **Rhombus.WinFormsMcp.TestApp** (src/Rhombus.WinFormsMcp.TestApp/)
    - Sample WinForms application with various controls for testing automation capabilities.
 
-3. **Rhombus.WinFormsMcp.Tests** (tests/Rhombus.WinFormsMcp.Tests/)
+4. **Rhombus.WinFormsMcp.Tests** (tests/Rhombus.WinFormsMcp.Tests/)
    - NUnit test suite covering AutomationHelper functionality, process lifecycle, element operations, and resource cleanup.
 
 ### Key Technical Decisions
@@ -77,7 +85,7 @@ dotnet pack src/Rhombus.WinFormsMcp.Server/Rhombus.WinFormsMcp.Server.csproj -c 
 - **Framework**: .NET 8.0 Windows-specific (net8.0-windows) for WinForms compatibility
 - **UI Automation**: FlaUI 4.0.0 with UIA2 backend for maximum WinForms compatibility without visual requirements
 - **Testing**: NUnit 3.14.0 with Moq for mocking
-- **Protocol**: MCP with stdio transport, single-line JSON-RPC 2.0 messages
+- **Protocol**: Official `ModelContextProtocol` .NET SDK with stdio transport
 - **Package Distribution**: NuGet (Rhombus.WinFormsMcp), NPM (@fnrhombus/winforms-mcp)
 
 ### Code Organization
@@ -125,8 +133,12 @@ See the [Headless Mode wiki page](https://github.com/fnrhombus/winforms-mcp/wiki
 
 ### Error Handling
 
-- All operations wrapped in try-catch blocks
-- Default timeout: 5000ms for find operations, 10000ms for async waits
+- Every tool receives a `CancellationToken` and runs under `TOOL_TIMEOUT_MS` (default 30000ms)
+- UIA wait/event polling and RendererHost I/O observe cancellation directly
+- Renderer startup and requests use `RENDERER_STARTUP_TIMEOUT_MS` and `RENDERER_TIMEOUT_MS`
+- Tool failures return structured `code`, `message`, `exceptionType`, `retryable`, and `elapsedMs` fields
+- Application Insights telemetry is disabled by default (`TELEMETRY_OPTOUT=true`); set it to `false` to opt in
+- Default timeout: 5000ms for synchronous find operations, 10000ms for async waits
 - Retry mechanism: 100ms intervals for element discovery
 - Resource cleanup via IDisposable pattern
 

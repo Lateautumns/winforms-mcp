@@ -195,11 +195,12 @@ public class McpIntegrationTests {
             arguments = new { }
         });
 
-        Assert.That(response.TryGetProperty("error", out var error), Is.True,
-            "Should return error for unknown tool");
-        // The actual error detail is in error.data.details
-        var details = error.GetProperty("data").GetProperty("details").GetString();
-        Assert.That(details, Does.Contain("Unknown tool"));
+        Assert.That(response.TryGetProperty("result", out var result), Is.True,
+            "MCP tool failures should be returned as CallToolResult");
+        Assert.That(result.GetProperty("isError").GetBoolean(), Is.True);
+        var error = result.GetProperty("structuredContent").GetProperty("error");
+        Assert.That(error.GetProperty("code").GetString(), Is.EqualTo("tool_not_found"));
+        Assert.That(error.GetProperty("message").GetString(), Does.Contain("Unknown tool"));
     }
 
     [Test]
@@ -273,6 +274,14 @@ namespace Test {
     [Timeout(60000)]
     [Category("RequiresClaude")]
     public async Task ClaudeMcpGet_ShowsServerWithAllTools() {
+        if (!string.Equals(
+                Environment.GetEnvironmentVariable("RUN_CLAUDE_INTEGRATION_TESTS"),
+                "true",
+                StringComparison.OrdinalIgnoreCase)) {
+            Assert.Ignore(
+                "Set RUN_CLAUDE_INTEGRATION_TESTS=true to run the Claude CLI approval/connection test");
+        }
+
         // Check claude CLI is available
         var claudePath = FindClaude();
         if (claudePath == null) {

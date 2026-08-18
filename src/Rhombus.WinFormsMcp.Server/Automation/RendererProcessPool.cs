@@ -2,6 +2,8 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -30,6 +32,8 @@ public sealed class RendererProcessPool : IDisposable {
     private readonly object _createLock = new();
     private readonly Lazy<string> _hostBasePath;
     private readonly string _configuredTfm;
+    private readonly TimeSpan _renderTimeout;
+    private readonly TimeSpan _startupTimeout;
     private bool _disposed;
 
     /// <param name="cache">Memory cache instance for managing host entries.</param>
@@ -41,6 +45,10 @@ public sealed class RendererProcessPool : IDisposable {
     public RendererProcessPool(IMemoryCache cache, IOptions<McpServerOptions> serverOptions, string? hostBasePath = null) {
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
         _configuredTfm = serverOptions?.Value?.Tfm ?? "auto";
+        _renderTimeout = TimeSpan.FromMilliseconds(
+            serverOptions?.Value?.RendererTimeoutMs ?? 30000);
+        _startupTimeout = TimeSpan.FromMilliseconds(
+            serverOptions?.Value?.RendererStartupTimeoutMs ?? 10000);
         _hostBasePath = hostBasePath != null
             ? new Lazy<string>(hostBasePath)
             : new Lazy<string>(DetectHostBasePath);
@@ -63,14 +71,19 @@ public sealed class RendererProcessPool : IDisposable {
         string? companionContent,
         string[]? extraAssemblyPaths,
         string targetTfm,
-        string? csprojPath = null) {
+        string? csprojPath = null,
+        CancellationToken cancellationToken = default) {
         if (_disposed)
             throw new ObjectDisposedException(nameof(RendererProcessPool));
 
         var hostTfm = ResolveHostTfm(targetTfm, csprojPath);
         var entry = GetOrCreateEntry(hostTfm);
 
-        return await entry.RenderAsync(designerContent, companionContent, extraAssemblyPaths);
+        return await entry.RenderAsync(
+            designerContent,
+            companionContent,
+            extraAssemblyPaths,
+            cancellationToken);
     }
 
     /// <summary>
@@ -144,6 +157,21 @@ public sealed class RendererProcessPool : IDisposable {
         return "net8.0-windows";
     }
 
+    internal static string BuildReferenceFingerprint(IEnumerable<string>? assemblyPaths) {
+        var input = new StringBuilder();
+        foreach (var path in (assemblyPaths ?? [])
+            .Select(Path.GetFullPath)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)) {
+            var file = new FileInfo(path);
+            input.Append(path);
+            input.Append('|').Append(file.Exists ? file.Length : -1);
+            input.Append('|').Append(file.Exists ? file.LastWriteTimeUtc.Ticks : -1);
+            input.AppendLine();
+        }
+
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input.ToString())));
+    }
+
     public void Dispose() {
         if (_disposed)
             return;
@@ -164,7 +192,11 @@ public sealed class RendererProcessPool : IDisposable {
             if (_cache.TryGetValue<HostEntry>(key, out existing))
                 return existing!;
 
-            var entry = new HostEntry(hostTfm, _hostBasePath.Value);
+            var entry = new HostEntry(
+                hostTfm,
+                _hostBasePath.Value,
+                _renderTimeout,
+                _startupTimeout);
             var options = new MemoryCacheEntryOptions()
                 .SetSlidingExpiration(IdleTimeout)
                 .RegisterPostEvictionCallback((k, v, reason, state) => {
@@ -236,51 +268,99 @@ public sealed class RendererProcessPool : IDisposable {
     /// Thread-safe: uses a SemaphoreSlim to serialize requests to one process.
     /// </summary>
     private sealed class HostEntry : IDisposable {
+        private const int MaxDiagnosticCharacters = 16000;
+
         private readonly string _tfm;
         private readonly string _hostBasePath;
+        private readonly TimeSpan _renderTimeout;
+        private readonly TimeSpan _startupTimeout;
         private readonly SemaphoreSlim _lock = new(1, 1);
+        private readonly object _stderrLock = new();
+        private readonly StringBuilder _stderr = new();
         private Process? _process;
         private StreamWriter? _stdin;
         private StreamReader? _stdout;
+        private string? _referenceFingerprint;
         private bool _disposed;
 
-        public HostEntry(string tfm, string hostBasePath) {
+        public HostEntry(
+            string tfm,
+            string hostBasePath,
+            TimeSpan renderTimeout,
+            TimeSpan startupTimeout) {
             _tfm = tfm;
             _hostBasePath = hostBasePath;
+            _renderTimeout = renderTimeout;
+            _startupTimeout = startupTimeout;
         }
 
-        public async Task<byte[]> RenderAsync(string designerContent, string? companionContent, string[]? extraAssemblyPaths) {
-            await _lock.WaitAsync();
+        public async Task<byte[]> RenderAsync(
+            string designerContent,
+            string? companionContent,
+            string[]? extraAssemblyPaths,
+            CancellationToken cancellationToken) {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            await _lock.WaitAsync(cancellationToken);
             try {
-                EnsureProcess();
-
-                var request = JsonSerializer.Serialize(new {
-                    designerContent,
-                    companionContent,
-                    extraAssemblyPaths
-                }, JsonOptions);
-
-                await _stdin!.WriteLineAsync(request);
-                await _stdin.FlushAsync();
-
-                var responseLine = await _stdout!.ReadLineAsync();
-                if (responseLine == null)
-                    throw new InvalidOperationException($"RendererHost ({_tfm}) closed unexpectedly.");
-
-                using var doc = JsonDocument.Parse(responseLine);
-                var root = doc.RootElement;
-
-                if (root.TryGetProperty("success", out var successProp) && successProp.GetBoolean()) {
-                    var base64 = root.GetProperty("pngBase64").GetString()
-                        ?? throw new InvalidOperationException("Host returned success but no image data.");
-                    return Convert.FromBase64String(base64);
+                var referenceFingerprint = BuildReferenceFingerprint(extraAssemblyPaths);
+                if (_referenceFingerprint != null &&
+                    !string.Equals(
+                        _referenceFingerprint,
+                        referenceFingerprint,
+                        StringComparison.Ordinal)) {
+                    // Loaded assemblies cannot be replaced in-place. Start a clean host when
+                    // switching projects or when a referenced DLL has been rebuilt.
+                    KillProcess();
                 }
+                _referenceFingerprint = referenceFingerprint;
+                await EnsureProcessAsync(cancellationToken);
 
-                var error = root.TryGetProperty("error", out var errProp) ? errProp.GetString() : "Unknown error";
-                throw new InvalidOperationException($"RendererHost ({_tfm}) error: {error}");
+                using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutSource.CancelAfter(_renderTimeout);
+                var requestToken = timeoutSource.Token;
+                try {
+                    var request = JsonSerializer.Serialize(new {
+                        designerContent,
+                        companionContent,
+                        extraAssemblyPaths
+                    }, JsonOptions);
+
+                    await _stdin!.WriteLineAsync(request.AsMemory(), requestToken);
+                    await _stdin.FlushAsync(requestToken);
+                    var responseLine = await _stdout!.ReadLineAsync(requestToken);
+                    if (responseLine == null) {
+                        throw new InvalidOperationException(
+                            $"RendererHost ({_tfm}) closed unexpectedly.{FormatDiagnostics()}");
+                    }
+
+                    using var document = JsonDocument.Parse(responseLine);
+                    var root = document.RootElement;
+                    if (root.TryGetProperty("success", out var success) && success.GetBoolean()) {
+                        var base64 = root.GetProperty("pngBase64").GetString()
+                            ?? throw new InvalidOperationException(
+                                "RendererHost returned success but no image data.");
+                        return Convert.FromBase64String(base64);
+                    }
+
+                    var code = ReadString(root, "errorCode") ?? "renderer_error";
+                    var error = ReadString(root, "error") ?? "Unknown renderer error";
+                    var exceptionType = ReadString(root, "exceptionType");
+                    var details = ReadString(root, "details");
+                    throw new RendererHostException(
+                        code,
+                        BuildHostErrorMessage(error, exceptionType, details));
+                }
+                catch (OperationCanceledException exception)
+                    when (!cancellationToken.IsCancellationRequested) {
+                    var diagnostics = FormatDiagnostics();
+                    throw new TimeoutException(
+                        $"RendererHost ({_tfm}) exceeded the {_renderTimeout.TotalMilliseconds:0}ms " +
+                        $"render timeout.{diagnostics}",
+                        exception);
+                }
             }
             catch {
-                // If anything goes wrong, kill the process so next call starts fresh
+                // A partial request/response makes the stream unusable. Recreate it next time.
                 KillProcess();
                 throw;
             }
@@ -297,15 +377,15 @@ public sealed class RendererProcessPool : IDisposable {
             _lock.Dispose();
         }
 
-        private void EnsureProcess() {
+        private async Task EnsureProcessAsync(CancellationToken cancellationToken) {
             if (_process != null && !_process.HasExited)
                 return;
 
-            // Clean up dead process
             KillProcess();
+            ClearDiagnostics();
 
             var exePath = FindHostExe();
-            var psi = new ProcessStartInfo {
+            var startInfo = new ProcessStartInfo {
                 FileName = exePath,
                 UseShellExecute = false,
                 RedirectStandardInput = true,
@@ -315,37 +395,118 @@ public sealed class RendererProcessPool : IDisposable {
                 WorkingDirectory = Path.GetDirectoryName(exePath)!
             };
 
-            _process = Process.Start(psi)
+            _process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException($"Failed to start RendererHost for {_tfm}");
-
             _stdin = _process.StandardInput;
             _stdout = _process.StandardOutput;
+            _ = CaptureStderrAsync(_process.StandardError);
 
-            // Read the ready message
-            var readyLine = _stdout.ReadLine();
-            if (readyLine == null)
-                throw new InvalidOperationException($"RendererHost ({_tfm}) exited before sending ready signal.");
+            using var startupSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            startupSource.CancelAfter(_startupTimeout);
+            try {
+                var readyLine = await _stdout.ReadLineAsync(startupSource.Token);
+                if (readyLine == null) {
+                    throw new InvalidOperationException(
+                        $"RendererHost ({_tfm}) exited before sending ready signal.{FormatDiagnostics()}");
+                }
 
-            using var readyDoc = JsonDocument.Parse(readyLine);
-            var type = readyDoc.RootElement.GetProperty("type").GetString();
-            if (type != "ready")
-                throw new InvalidOperationException($"RendererHost ({_tfm}) sent unexpected first message: {readyLine}");
+                using var readyDocument = JsonDocument.Parse(readyLine);
+                var type = readyDocument.RootElement.GetProperty("type").GetString();
+                if (!string.Equals(type, "ready", StringComparison.Ordinal)) {
+                    throw new InvalidOperationException(
+                        $"RendererHost ({_tfm}) sent an unexpected first message: {readyLine}");
+                }
+            }
+            catch (OperationCanceledException exception)
+                when (!cancellationToken.IsCancellationRequested) {
+                throw new TimeoutException(
+                    $"RendererHost ({_tfm}) exceeded the {_startupTimeout.TotalMilliseconds:0}ms " +
+                    $"startup timeout.{FormatDiagnostics()}",
+                    exception);
+            }
+            catch {
+                KillProcess();
+                throw;
+            }
+        }
+
+        private async Task CaptureStderrAsync(StreamReader reader) {
+            try {
+                while (await reader.ReadLineAsync() is { } line) {
+                    lock (_stderrLock) {
+                        if (_stderr.Length < MaxDiagnosticCharacters)
+                            _stderr.AppendLine(line);
+                    }
+                }
+            }
+            catch {
+                // Closing or killing the host tears down the stderr pipe.
+            }
+        }
+
+        private string BuildHostErrorMessage(
+            string error,
+            string? exceptionType,
+            string? details) {
+            var message = new StringBuilder($"RendererHost ({_tfm}) error: {error}");
+            if (!string.IsNullOrWhiteSpace(exceptionType))
+                message.Append($" [exception: {exceptionType}]");
+            if (!string.IsNullOrWhiteSpace(details))
+                message.AppendLine().Append(details);
+            message.Append(FormatDiagnostics());
+            return message.ToString();
+        }
+
+        private string FormatDiagnostics() {
+            lock (_stderrLock) {
+                return _stderr.Length == 0
+                    ? string.Empty
+                    : $"{Environment.NewLine}RendererHost stderr:{Environment.NewLine}{_stderr}";
+            }
+        }
+
+        private void ClearDiagnostics() {
+            lock (_stderrLock) {
+                _stderr.Clear();
+            }
         }
 
         private void KillProcess() {
-            if (_process != null) {
-                try {
-                    _stdin?.Close();
-                    if (!_process.HasExited)
-                        _process.Kill();
-                    _process.Dispose();
-                }
-                catch { /* best effort */ }
+            if (_process == null)
+                return;
+
+            var process = _process;
+            try {
+                _stdin?.Close();
+            }
+            catch {
+                // Continue to the process termination even if closing stdin fails.
+            }
+            try {
+                if (!process.HasExited)
+                    process.Kill(entireProcessTree: true);
+            }
+            catch {
+                // Best-effort cleanup; a dead host will still be replaced on the next call.
+            }
+            try {
+                process.Dispose();
+            }
+            catch {
+                // Process handles are best-effort during cancellation and shutdown.
+            }
+            finally {
                 _process = null;
                 _stdin = null;
                 _stdout = null;
             }
         }
+
+        private static string? ReadString(JsonElement element, string propertyName) =>
+            element.TryGetProperty(propertyName, out var property) &&
+            property.ValueKind == JsonValueKind.String
+                ? property.GetString()
+                : null;
 
         private string FindHostExe() {
             var exeName = "Rhombus.WinFormsMcp.RendererHost.exe";
@@ -368,5 +529,14 @@ public sealed class RendererProcessPool : IDisposable {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
         };
+    }
+
+    internal sealed class RendererHostException : InvalidOperationException {
+        public RendererHostException(string code, string message)
+            : base(message) {
+            Code = code;
+        }
+
+        public string Code { get; }
     }
 }

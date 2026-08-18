@@ -37,13 +37,63 @@ public static class FormRenderingHelpers {
     public static string FindCsproj(string directory) {
         var dir = directory;
         while (dir != null) {
-            var csprojFiles = Directory.GetFiles(dir, "*.csproj");
-            if (csprojFiles.Length > 0)
-                return csprojFiles[0];
+            try {
+                var csprojFiles = Directory.GetFiles(dir, "*.csproj");
+                if (csprojFiles.Length > 0)
+                    return csprojFiles[0];
+            }
+            catch (Exception exception) when (
+                exception is UnauthorizedAccessException or DirectoryNotFoundException) {
+                // Continue toward the filesystem root; inaccessible parents are not projects.
+            }
             dir = Path.GetDirectoryName(dir);
         }
         throw new FileNotFoundException($"No .csproj file found in directory tree above {directory}");
     }
+
+    /// <summary>
+    /// Find reference assemblies in the most relevant project build output.
+    /// </summary>
+    public static string[] ResolveProjectAssemblyPaths(
+        string csprojPath,
+        string? preferredTfm = null) {
+        var projectDirectory = Path.GetDirectoryName(csprojPath)
+            ?? throw new ArgumentException($"Cannot determine project directory for: {csprojPath}");
+        var binDirectory = Path.Combine(projectDirectory, "bin");
+        if (!Directory.Exists(binDirectory))
+            return [];
+
+        var configurationDirectories = new[] { "Debug", "Release" }
+            .Select(configuration => Path.Combine(binDirectory, configuration))
+            .Where(Directory.Exists)
+            .ToArray();
+
+        var candidates = string.IsNullOrWhiteSpace(preferredTfm)
+            ? []
+            : configurationDirectories
+                .Select(directory => Path.Combine(directory, preferredTfm))
+                .Where(Directory.Exists)
+                .Where(directory => Directory.EnumerateFiles(directory, "*.dll").Any())
+                .ToArray();
+
+        if (candidates.Length == 0) {
+            candidates = configurationDirectories
+                .SelectMany(Directory.GetDirectories)
+                .Where(directory => Directory.EnumerateFiles(directory, "*.dll").Any())
+                .ToArray();
+        }
+
+        var latestOutput = candidates
+            .OrderByDescending(GetLatestAssemblyWriteTimeUtc)
+            .FirstOrDefault();
+        return latestOutput == null ? [] : Directory.GetFiles(latestOutput, "*.dll");
+    }
+
+    private static DateTime GetLatestAssemblyWriteTimeUtc(string directory) =>
+        Directory.EnumerateFiles(directory, "*.dll")
+            .Select(File.GetLastWriteTimeUtc)
+            .DefaultIfEmpty(DateTime.MinValue)
+            .Max();
 
     /// <summary>
     /// Parse the designer file to extract namespace, class name, and event handler names.

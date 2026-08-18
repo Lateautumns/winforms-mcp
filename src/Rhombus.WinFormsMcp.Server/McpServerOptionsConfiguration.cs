@@ -39,5 +39,14 @@ internal class McpServerOptionsConfiguration : IPostConfigureOptions<McpServerOp
                 options.MinimumLogLevel = level;
             }
         }
+
+        options.ToolTimeoutMs = ParsePositiveInt("TOOL_TIMEOUT_MS", options.ToolTimeoutMs);
+        options.RendererTimeoutMs = ParsePositiveInt("RENDERER_TIMEOUT_MS", options.RendererTimeoutMs);
+        options.RendererStartupTimeoutMs = ParsePositiveInt("RENDERER_STARTUP_TIMEOUT_MS", options.RendererStartupTimeoutMs);
+    }
+
+    private int ParsePositiveInt(string key, int defaultValue) {
+        var value = _configuration[key];
+        return int.TryParse(value, out var parsed) && parsed > 0 ? parsed : defaultValue;
     }
 }

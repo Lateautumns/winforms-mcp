@@ -49,7 +49,7 @@ class Program {
                 services.AddSingleton<NullTelemetry>();
                 services.AddSingleton<Telemetry>();
 
-                services.AddHostedService<AutomationServer>();
+                services.AddWinFormsMcpServer();
             })
             .ConfigureLogging((context, logging) => {
                 logging.ClearProviders();

@@ -22,9 +22,12 @@ public class McpServerOptionsTests {
     public void BindOptions_Defaults() {
         var opts = Bind(new Dictionary<string, string?>());
         Assert.That(opts.Headless, Is.False);
-        Assert.That(opts.TelemetryOptOut, Is.False);
+        Assert.That(opts.TelemetryOptOut, Is.True);
         Assert.That(opts.Tfm, Is.EqualTo("auto"));
         Assert.That(opts.MinimumLogLevel, Is.EqualTo(LogLevel.Information));
+        Assert.That(opts.ToolTimeoutMs, Is.EqualTo(30000));
+        Assert.That(opts.RendererTimeoutMs, Is.EqualTo(30000));
+        Assert.That(opts.RendererStartupTimeoutMs, Is.EqualTo(10000));
     }
 
     [Test]
@@ -96,5 +99,33 @@ public class McpServerOptionsTests {
     public void BindOptions_LogLevel(string? value, LogLevel expected) {
         var opts = Bind(new Dictionary<string, string?> { ["LOG_LEVEL"] = value });
         Assert.That(opts.MinimumLogLevel, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void BindOptions_Timeouts() {
+        var opts = Bind(new Dictionary<string, string?> {
+            ["TOOL_TIMEOUT_MS"] = "1250",
+            ["RENDERER_TIMEOUT_MS"] = "2500",
+            ["RENDERER_STARTUP_TIMEOUT_MS"] = "750"
+        });
+
+        Assert.That(opts.ToolTimeoutMs, Is.EqualTo(1250));
+        Assert.That(opts.RendererTimeoutMs, Is.EqualTo(2500));
+        Assert.That(opts.RendererStartupTimeoutMs, Is.EqualTo(750));
+    }
+
+    [TestCase("0")]
+    [TestCase("-1")]
+    [TestCase("invalid")]
+    public void BindOptions_InvalidTimeoutsUseDefaults(string value) {
+        var opts = Bind(new Dictionary<string, string?> {
+            ["TOOL_TIMEOUT_MS"] = value,
+            ["RENDERER_TIMEOUT_MS"] = value,
+            ["RENDERER_STARTUP_TIMEOUT_MS"] = value
+        });
+
+        Assert.That(opts.ToolTimeoutMs, Is.EqualTo(30000));
+        Assert.That(opts.RendererTimeoutMs, Is.EqualTo(30000));
+        Assert.That(opts.RendererStartupTimeoutMs, Is.EqualTo(10000));
     }
 }

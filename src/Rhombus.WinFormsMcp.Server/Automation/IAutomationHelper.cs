@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 
 using FlaUI.Core.AutomationElements;
@@ -118,6 +119,16 @@ public interface IAutomationHelper : IDisposable {
     Task<bool> WaitForElementAsync(string automationId, AutomationElement? parent = null, int timeoutMs = 10000);
 
     /// <summary>
+    /// Wait for an element to appear, observing caller cancellation while polling.
+    /// </summary>
+    Task<bool> WaitForElementAsync(
+        string automationId,
+        AutomationElement? parent,
+        int timeoutMs,
+        CancellationToken cancellationToken) =>
+        WaitForElementAsync(automationId, parent, timeoutMs).WaitAsync(cancellationToken);
+
+    /// <summary>
     /// Get all child elements
     /// </summary>
     AutomationElement[]? GetAllChildren(AutomationElement element);
@@ -179,6 +190,23 @@ public interface IAutomationHelper : IDisposable {
         string comparison = "equals", int timeoutMs = 10000);
 
     /// <summary>
+    /// Wait for a property condition, observing caller cancellation while polling.
+    /// </summary>
+    Task<(bool matched, string? actualValue, long elapsedMs)> WaitForConditionAsync(
+        AutomationElement element,
+        string propertyName,
+        string expectedValue,
+        string comparison,
+        int timeoutMs,
+        CancellationToken cancellationToken) =>
+        WaitForConditionAsync(
+            element,
+            propertyName,
+            expectedValue,
+            comparison,
+            timeoutMs).WaitAsync(cancellationToken);
+
+    /// <summary>
     /// Toggle a checkbox, radio button, or toggle button using TogglePattern.
     /// </summary>
     /// <param name="element">The element to toggle</param>
@@ -231,6 +259,16 @@ public interface IAutomationHelper : IDisposable {
     /// </summary>
     Task<(bool fired, string? eventDetails, long elapsedMs)> ListenForEventAsync(
         AutomationElement? element, string eventType, int timeoutMs = 10000);
+
+    /// <summary>
+    /// Listen for a UIA event, observing caller cancellation while polling.
+    /// </summary>
+    Task<(bool fired, string? eventDetails, long elapsedMs)> ListenForEventAsync(
+        AutomationElement? element,
+        string eventType,
+        int timeoutMs,
+        CancellationToken cancellationToken) =>
+        ListenForEventAsync(element, eventType, timeoutMs).WaitAsync(cancellationToken);
 
     /// <summary>
     /// Open a context menu on an element.

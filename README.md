@@ -118,7 +118,27 @@ Set `HEADLESS=true` to launch apps on a hidden Windows desktop (`CreateDesktop` 
 |----------|---------|-------------|
 | `HEADLESS` | `false` | Run launched apps on a hidden desktop |
 | `TFM` | `auto` | Lock rendering to a specific framework (`net48`, `netcoreapp3.1`, `net8.0-windows`) |
-| `TELEMETRY_OPTOUT` | `false` | Disable all Application Insights telemetry (matches .NET CLI conventions) |
+| `TELEMETRY_OPTOUT` | `true` | Disable Application Insights telemetry; set to `false` to opt in |
+| `TOOL_TIMEOUT_MS` | `30000` | Maximum duration of one MCP tool call |
+| `RENDERER_TIMEOUT_MS` | `30000` | Maximum duration of one RendererHost render request |
+| `RENDERER_STARTUP_TIMEOUT_MS` | `10000` | Maximum time to wait for RendererHost readiness |
+
+## Server architecture
+
+The server uses the official `ModelContextProtocol` .NET SDK for stdio transport,
+handshake/capability negotiation, tool discovery, and tool calls. Tool schemas are
+kept in a definition catalog and each of the 33 tools has an independent handler
+registered through a validated `ToolRegistry`.
+
+`AutomationHelper` remains as the public compatibility facade. Process, UIA,
+window, input, screenshot, clipboard, hidden-desktop, and UIA-event behavior is
+implemented by focused services under `Automation/`. Every MCP call has a shared
+timeout and cancellation pipeline, elapsed-time logging, and structured errors.
+
+RendererHost has separate startup and request timeouts. A stuck or invalid host is
+terminated and recreated on the next render. Renderer cache keys include the host
+TFM and referenced DLL metadata, so rebuilding a custom control invalidates stale
+previews.
 
 ## Documentation
 
