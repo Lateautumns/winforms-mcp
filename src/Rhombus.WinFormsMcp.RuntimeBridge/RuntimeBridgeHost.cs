@@ -201,16 +201,16 @@ public sealed class RuntimeBridgeHost : IDisposable {
         string message,
         bool retryable,
         Exception? exception = null) => new() {
-        RequestId = requestId,
-        ProtocolVersion = RuntimeBridgeProtocol.Version,
-        Success = false,
-        Error = new RuntimeError {
-            Code = code,
-            Message = message,
-            Retryable = retryable,
-            ExceptionType = exception?.GetType().Name
-        }
-    };
+            RequestId = requestId,
+            ProtocolVersion = RuntimeBridgeProtocol.Version,
+            Success = false,
+            Error = new RuntimeError {
+                Code = code,
+                Message = message,
+                Retryable = retryable,
+                ExceptionType = exception?.GetType().Name
+            }
+        };
 
     private static JsonElement ToJsonElement(object value) {
         var json = JsonSerializer.Serialize(value, value.GetType(), SerializerOptions);
