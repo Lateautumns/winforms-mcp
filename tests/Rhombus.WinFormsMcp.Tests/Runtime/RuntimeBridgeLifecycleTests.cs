@@ -6,9 +6,14 @@ using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
 
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+
 using Rhombus.WinFormsMcp.RuntimeBridge;
 using Rhombus.WinFormsMcp.RuntimeBridge.Inspection;
 using Rhombus.WinFormsMcp.RuntimeContracts;
+using Rhombus.WinFormsMcp.Server;
+using Rhombus.WinFormsMcp.Server.Runtime;
 
 namespace Rhombus.WinFormsMcp.Tests.Runtime;
 
@@ -206,11 +211,169 @@ public sealed class RuntimeBridgeLifecycleTests {
                 Assert.That(response.Success, Is.True);
                 Assert.That(response.ProtocolVersion, Is.EqualTo(RuntimeBridgeProtocol.Version));
                 Assert.That(response.Result.GetProperty("available").GetBoolean(), Is.True);
+                Assert.That(response.Result.GetProperty("bridgeInstanceId").GetString(), Is.Not.Empty);
             });
         }
         finally {
             host.Dispose();
         }
+    }
+
+    [Test]
+    [Timeout(10000)]
+    public async Task RuntimeBridgeHost_RejectsRequestFromStaleBridgeInstance() {
+        var pipeName = CreatePipeName();
+        var host = new RuntimeBridgeHost(new RuntimeBridgeOptions { PipeName = pipeName }, null);
+        host.Start();
+
+        try {
+            var response = await SendRequestAsync(
+                pipeName,
+                RuntimeBridgeProtocol.GetControlTree,
+                bridgeInstanceId: "stale-instance");
+
+            Assert.Multiple(() => {
+                Assert.That(response.Success, Is.False);
+                Assert.That(response.Error?.Code, Is.EqualTo("bridge_instance_mismatch"));
+            });
+        }
+        finally {
+            await host.StopAsync();
+        }
+    }
+
+    [Test]
+    [Timeout(10000)]
+    public async Task RuntimeBridgeHost_AllowsLegacyRequestWithoutInstanceId() {
+        var pipeName = CreatePipeName();
+        var host = new RuntimeBridgeHost(new RuntimeBridgeOptions { PipeName = pipeName }, null);
+        host.Start();
+
+        try {
+            var response = await SendRequestAsync(pipeName, RuntimeBridgeProtocol.GetControlTree);
+
+            Assert.That(response.Error?.Code, Is.Not.EqualTo("bridge_instance_mismatch"));
+        }
+        finally {
+            await host.StopAsync();
+        }
+    }
+
+    [Test]
+    [Timeout(10000)]
+    public async Task RuntimeBridgeHost_RequiresInstanceIdAfterHello() {
+        var pipeName = CreatePipeName();
+        var host = new RuntimeBridgeHost(new RuntimeBridgeOptions { PipeName = pipeName }, null);
+        host.Start();
+
+        try {
+            using var pipe = await ConnectPipeAsync(pipeName);
+            using var reader = new StreamReader(pipe, new UTF8Encoding(false), false, 4096, leaveOpen: true);
+            using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, leaveOpen: true) {
+                AutoFlush = true
+            };
+
+            var hello = await SendRequestAsync(reader, writer, RuntimeBridgeProtocol.Hello);
+            var bridgeInstanceId = hello.Result.GetProperty("bridgeInstanceId").GetString();
+            Assert.That(bridgeInstanceId, Is.Not.Empty);
+
+            var request = new RuntimeRequest {
+                ProtocolVersion = RuntimeBridgeProtocol.Version,
+                RequestId = Guid.NewGuid().ToString("N"),
+                Command = RuntimeBridgeProtocol.GetControlTree,
+                Pid = Environment.ProcessId,
+                Arguments = JsonSerializer.SerializeToElement(new { })
+            };
+            await writer.WriteLineAsync(JsonSerializer.Serialize(request, JsonOptions));
+            var response = JsonSerializer.Deserialize<RuntimeResponse>(
+                await reader.ReadLineAsync() ?? throw new IOException("RuntimeBridge closed before responding."),
+                JsonOptions);
+
+            Assert.That(response?.Error?.Code, Is.EqualTo("bridge_instance_mismatch"));
+        }
+        finally {
+            await host.StopAsync();
+        }
+    }
+
+    [Test]
+    [Timeout(10000)]
+    public async Task RuntimeBridgeHost_RejectsOversizedRequestBeforeDeserializing() {
+        var pipeName = CreatePipeName();
+        var host = new RuntimeBridgeHost(
+            new RuntimeBridgeOptions { PipeName = pipeName, MaxRequestBytes = 64 },
+            null);
+        host.Start();
+
+        try {
+            using var pipe = await ConnectPipeAsync(pipeName);
+            using var reader = new StreamReader(pipe, new UTF8Encoding(false), false, 4096, leaveOpen: true);
+            using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, leaveOpen: true) {
+                AutoFlush = true
+            };
+            await writer.WriteLineAsync("{\"requestId\":\"oversized\",\"payload\":\"" + new string('x', 256) + "\"}");
+
+            var response = JsonSerializer.Deserialize<RuntimeResponse>(
+                await reader.ReadLineAsync() ?? throw new IOException("RuntimeBridge closed before oversized response."),
+                JsonOptions);
+            Assert.That(response?.Error?.Code, Is.EqualTo("request_too_large"));
+        }
+        finally {
+            await host.StopAsync();
+        }
+    }
+
+    [Test]
+    [Timeout(10000)]
+    public async Task RuntimeBridgeHost_ReplacesOversizedResponseWithStructuredError() {
+        var pipeName = CreatePipeName();
+        var host = new RuntimeBridgeHost(
+            new RuntimeBridgeOptions { PipeName = pipeName, MaxResponseBytes = 64 },
+            null);
+        host.Start();
+
+        try {
+            var response = await SendRequestAsync(pipeName, RuntimeBridgeProtocol.GetStatus);
+
+            Assert.Multiple(() => {
+                Assert.That(response.Success, Is.False);
+                Assert.That(response.Error?.Code, Is.EqualTo("response_too_large"));
+                Assert.That(response.Error?.Retryable, Is.True);
+            });
+        }
+        finally {
+            await host.StopAsync();
+        }
+    }
+
+    [Test]
+    [Timeout(10000)]
+    public async Task RuntimeBridgeClient_AllowsLegacyHelloWithoutInstanceId() {
+        var processId = Environment.ProcessId;
+        var pipeName = RuntimeBridgeProtocol.GetPipeName(processId);
+        using var server = new NamedPipeServerStream(
+            pipeName,
+            PipeDirection.InOut,
+            1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+        var serverTask = ServeLegacyBridgeAsync(server, processId);
+        using var client = new NamedPipeRuntimeBridgeClient(
+            Options.Create(new McpServerOptions {
+                RuntimeBridgeEnabled = true,
+                RuntimeBridgeConnectTimeoutMs = 1000,
+                RuntimeBridgeRequestTimeoutMs = 3000
+            }),
+            NullLogger<NamedPipeRuntimeBridgeClient>.Instance);
+
+        var snapshot = await client.GetControlTreeAsync(processId, null, 1, 10, CancellationToken.None);
+        var actualRequest = await serverTask;
+
+        Assert.Multiple(() => {
+            Assert.That(snapshot.MaxDepth, Is.EqualTo(1));
+            Assert.That(actualRequest.Command, Is.EqualTo(RuntimeBridgeProtocol.GetControlTree));
+            Assert.That(actualRequest.BridgeInstanceId, Is.Null);
+        });
     }
 
     [Test]
@@ -320,17 +483,29 @@ public sealed class RuntimeBridgeLifecycleTests {
         }
     }
 
-    private static async Task<RuntimeResponse> SendRequestAsync(string pipeName, string command) {
+    private static async Task<RuntimeResponse> SendRequestAsync(
+        string pipeName,
+        string command,
+        string? bridgeInstanceId = null) {
         using var pipe = await ConnectPipeAsync(pipeName);
         using var reader = new StreamReader(pipe, new UTF8Encoding(false), false, 4096, leaveOpen: true);
         using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, leaveOpen: true) {
             AutoFlush = true
         };
+        return await SendRequestAsync(reader, writer, command, bridgeInstanceId);
+    }
+
+    private static async Task<RuntimeResponse> SendRequestAsync(
+        StreamReader reader,
+        StreamWriter writer,
+        string command,
+        string? bridgeInstanceId = null) {
         var request = new RuntimeRequest {
             ProtocolVersion = RuntimeBridgeProtocol.Version,
             RequestId = Guid.NewGuid().ToString("N"),
             Command = command,
             Pid = Environment.ProcessId,
+            BridgeInstanceId = bridgeInstanceId,
             Arguments = JsonSerializer.SerializeToElement(new { })
         };
         await writer.WriteLineAsync(JsonSerializer.Serialize(request, JsonOptions));
@@ -358,6 +533,50 @@ public sealed class RuntimeBridgeLifecycleTests {
         catch (ObjectDisposedException) {
             return true;
         }
+    }
+
+    private static async Task<RuntimeRequest> ServeLegacyBridgeAsync(
+        NamedPipeServerStream server,
+        int processId) {
+        await server.WaitForConnectionAsync();
+        using var reader = new StreamReader(server, new UTF8Encoding(false), false, 4096, leaveOpen: true);
+        using var writer = new StreamWriter(server, new UTF8Encoding(false), 4096, leaveOpen: true) {
+            AutoFlush = true
+        };
+
+        var helloRequest = await ReadRequestAsync(reader);
+        Assert.That(helloRequest.Command, Is.EqualTo(RuntimeBridgeProtocol.Hello));
+        await WriteSuccessAsync(
+            writer,
+            helloRequest.RequestId,
+            new BridgeHello {
+                ProtocolVersion = RuntimeBridgeProtocol.Version,
+                Process = new RuntimeProcessInfo { ProcessId = processId },
+                Capabilities = ["controlTree"]
+            });
+
+        var actualRequest = await ReadRequestAsync(reader);
+        await WriteSuccessAsync(
+            writer,
+            actualRequest.RequestId,
+            new ControlTreeSnapshot { MaxDepth = 1, MaxNodes = 10 });
+        return actualRequest;
+    }
+
+    private static async Task<RuntimeRequest> ReadRequestAsync(StreamReader reader) =>
+        JsonSerializer.Deserialize<RuntimeRequest>(
+            await reader.ReadLineAsync() ?? throw new IOException("Client disconnected before sending a request."),
+            JsonOptions)
+        ?? throw new IOException("Client sent an empty request.");
+
+    private static async Task WriteSuccessAsync(StreamWriter writer, string requestId, object result) {
+        var response = new RuntimeResponse {
+            ProtocolVersion = RuntimeBridgeProtocol.Version,
+            RequestId = requestId,
+            Success = true,
+            Result = JsonSerializer.SerializeToElement(result, result.GetType(), JsonOptions)
+        };
+        await writer.WriteLineAsync(JsonSerializer.Serialize(response, JsonOptions));
     }
 
     private static string CreatePipeName() => $"winformsmcp-test-{Guid.NewGuid():N}";
