@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 6 - AntdUI LayeredWindow / Popup inspection complete locally; Stage 6 Gate is ready for push/Windows CI. Continue to Stage 7 after Core CI.
+Stage 6 - AntdUI LayeredWindow / Popup inspection complete; local Gate and PR #2 Windows Core CI passed. Continue to Stage 7.
 
 ## Implemented
 
@@ -110,7 +110,8 @@ Stage 6 - AntdUI LayeredWindow / Popup inspection complete locally; Stage 6 Gate
 - PR #2 External CI: Claude Code Review fails for the same missing GitHub App setup.
 - Stage 4 commit CI: green.
 - Stage 5 Core CI: green for commit 700adc8 (push run 32213525287 and PR run 32213528776).
-- Stage 6 local Gate: passed; Windows CI pending the Stage 6 push.
+- Stage 6 Core CI: green for commit cbc300f (push run 32216808052 and PR run 32216813261).
+- Stage 6 external Claude Code Review: failed because the Claude Code GitHub App is not installed on the fork; no code changes were made for this external-service failure.
 
 ## Git
 
@@ -119,9 +120,9 @@ Stage 6 - AntdUI LayeredWindow / Popup inspection complete locally; Stage 6 Gate
 - Current Head Before Stage 5 Commit: 7869086 docs: record stage 4 ci status.
 - Stage 4 Commit: b7ac9f2 feat: add AntdUI basic control inspection.
 - Stage 5 Commit: 700adc8 feat: add AntdUI complex semantic inspection.
-- Stage 6 Commit: pending `feat: support AntdUI layered windows`.
+- Stage 6 Commit: cbc300f `feat: support AntdUI layered windows`.
 - Draft PR: #2, target feature/v11-foundation-refactor.
-- Working Tree: changes staged for Stage 6 Gate review.
+- Working Tree: clean after Stage 6 Core CI status update.
 
 ## Risks
 
@@ -136,7 +137,7 @@ Stage 6 - AntdUI LayeredWindow / Popup inspection complete locally; Stage 6 Gate
 
 ## Next
 
-- Push Stage 6 and wait for PR #2 Core CI; then begin Stage 7 Rendering / Theme / DPI.
+- Stage 6 Core CI is green; begin Stage 7 Rendering / Theme / DPI.
 
 ## Hard Blocker
 
