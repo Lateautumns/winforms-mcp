@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 8 - AI Diagnostics complete; local Gate and Windows Core CI are green.
+Stage 9 - Incremental SourceIndex started on the stacked `feature/v16-source-index` branch after Stage 8 Core CI completed successfully.
 
 ## Implemented
 
@@ -137,19 +137,21 @@ Stage 8 - AI Diagnostics complete; local Gate and Windows Core CI are green.
 - Stage 7 external Claude Code Review: failed with 401 because the Claude Code GitHub App is not installed on this fork; no code changes were made for this external-service failure.
 - Stage 8 Core CI: green for commit cd7ef0e (push run 32236157363 and PR run 32236160606).
 - Stage 8 external Claude Code Review run 32236160617 failed with 401 because the GitHub App is not installed on this fork; no code changes were made for this external-service failure.
+- Stage 8 CI status commit c844c1b: Core CI green (push run 32236718177 and PR run 32236723237); external Claude Code Review run 32236723248 failed with the same missing-App 401.
 
 ## Git
 
-- Base Branch: feature/v14-antdui-provider.
-- Current Branch: feature/v15-diagnostics.
+- Base Branch: feature/v15-diagnostics.
+- Current Branch: feature/v16-source-index.
 - Stage 7 Commit: f3bf321 `feat: support render theme and dpi profiles`.
 - Stage 8 Commit: cd7ef0e `feat: add WinForms runtime diagnostics`.
-- Current Head before the Stage 8 CI status commit: cd7ef0e.
+- Stage 8 CI Status Commit: c844c1b `docs: record stage 8 ci status`.
+- Current Head before the Stage 9 start commit: c844c1b.
 - Stage 4 Commit: b7ac9f2 feat: add AntdUI basic control inspection.
 - Stage 5 Commit: 700adc8 feat: add AntdUI complex semantic inspection.
 - Stage 6 Commit: cbc300f `feat: support AntdUI layered windows`.
-- Draft PR: #3 targets feature/v14-antdui-provider.
-- Working Tree: clean before recording the Stage 8 CI status.
+- Draft PR: #3 targets feature/v14-antdui-provider; Stage 9 Draft PR is pending creation against feature/v15-diagnostics.
+- Working Tree: clean before starting Stage 9 implementation.
 
 ## Risks
 
