@@ -358,4 +358,5 @@ None.
 - AntdUI reference repository remained read-only; no `.codegraph` artifacts or build outputs were added to Git.
 - Commit: `edce1dd` (`chore: prepare local 1.5.12-beta release`).
 - Draft PR: #8, `feature/v20-release-prep` -> `feature/v19-runtime-identity`.
-- Windows Core CI: pending final progress-status push.
+- Windows Core CI: green for the pushed head `24a84ec` (push run `32259744121`, pull-request run `32259755640`).
+- External Claude Code Review run `32259755616` failed with 401 because the Claude Code GitHub App is not installed on this fork; no code change was made for this external-service failure.
