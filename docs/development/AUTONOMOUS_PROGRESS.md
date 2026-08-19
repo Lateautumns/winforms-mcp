@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 5 - AntdUI complex semantic tree inspection implemented; local Stage 5 Gate passed, pending the pushed PR #2 Core CI run.
+Stage 5 - AntdUI complex semantic tree inspection complete; Stage 5 Gate passed locally and on PR #2 Core CI.
 
 ## Implemented
 
@@ -90,7 +90,7 @@ Stage 5 - AntdUI complex semantic tree inspection implemented; local Stage 5 Gat
 - PR #2 Core CI for Stage 4 commit: green on commit b7ac9f2 feat: add AntdUI basic control inspection.
 - PR #2 External CI: Claude Code Review fails for the same missing GitHub App setup.
 - Stage 4 commit CI: green.
-- Stage 5 Core CI: pending the Stage 5 implementation commit push.
+- Stage 5 Core CI: green for commit 700adc8 (push run 32213525287 and PR run 32213528776).
 
 ## Git
 
@@ -98,8 +98,9 @@ Stage 5 - AntdUI complex semantic tree inspection implemented; local Stage 5 Gat
 - Current Branch: feature/v14-antdui-provider.
 - Current Head Before Stage 5 Commit: 7869086 docs: record stage 4 ci status.
 - Stage 4 Commit: b7ac9f2 feat: add AntdUI basic control inspection.
+- Stage 5 Commit: 700adc8 feat: add AntdUI complex semantic inspection.
 - Draft PR: #2, target feature/v11-foundation-refactor.
-- Working Tree: Stage 5 implementation changes are ready for the Gate commit.
+- Working Tree: clean after Stage 5 implementation push; pending CI status documentation commit.
 
 ## Risks
 
@@ -112,9 +113,8 @@ Stage 5 - AntdUI complex semantic tree inspection implemented; local Stage 5 Gat
 
 ## Next
 
-- Commit and push the Stage 5 complex semantic inspection changes.
-- Check PR #2 Core CI on Windows for the pushed commit.
-- Do not enter Stage 6 LayeredWindow work until the Stage 5 Core CI is green.
+- Commit and push this Stage 5 CI status update.
+- Stage 5 Core CI is green; proceed to Stage 6 LayeredWindow research only after this status commit is pushed.
 
 ## Hard Blocker
 
@@ -128,7 +128,9 @@ None.
 - dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false: passed with 0 warnings and 0 errors.
 - dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false: passed with 0 warnings and 0 errors.
 - dotnet test Rhombus.WinFormsMcp.sln --configuration Release --no-build: 334 total, 290 passed, 44 skipped, 0 failed.
-- GitHub PR #2 CI run 32188783782: passed, build-test-coverage green on Windows.
+- GitHub PR #2 Stage 4 CI run 32188783782: passed, build-test-coverage green on Windows.
+- GitHub PR #2 Stage 5 push run 32213525287: passed, CI green on Windows.
+- GitHub PR #2 Stage 5 synchronize run 32213528776: passed, CI green on Windows.
 - Focused AntdUIProviderTests: 7 passed.
 - Focused RuntimeBridgeLifecycleTests: 14 passed.
 - Focused RuntimeInspectionTests: 4 passed.
