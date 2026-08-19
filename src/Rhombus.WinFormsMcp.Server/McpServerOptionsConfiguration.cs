@@ -47,10 +47,25 @@ internal class McpServerOptionsConfiguration : IPostConfigureOptions<McpServerOp
             "RUNTIME_BRIDGE_CONNECT_TIMEOUT_MS", options.RuntimeBridgeConnectTimeoutMs);
         options.RuntimeBridgeRequestTimeoutMs = ParsePositiveInt(
             "RUNTIME_BRIDGE_REQUEST_TIMEOUT_MS", options.RuntimeBridgeRequestTimeoutMs);
+        options.UiaWorkerStartupTimeoutMs = ParsePositiveInt(
+            "UIA_WORKER_STARTUP_TIMEOUT_MS", options.UiaWorkerStartupTimeoutMs);
+        options.UiaWorkerRequestTimeoutMs = ParsePositiveInt(
+            "UIA_WORKER_REQUEST_TIMEOUT_MS", options.UiaWorkerRequestTimeoutMs);
+        options.UiaWorkerMaxResponseBytes = ParsePositiveInt(
+            "UIA_WORKER_MAX_RESPONSE_BYTES", options.UiaWorkerMaxResponseBytes);
+        var uiaWorkerPath = _configuration["UIA_WORKER_PATH"];
+        if (!string.IsNullOrWhiteSpace(uiaWorkerPath))
+            options.UiaWorkerPath = uiaWorkerPath.Trim();
         var runtimeBridgeValue = _configuration["RUNTIME_BRIDGE_ENABLED"];
         if (!string.IsNullOrWhiteSpace(runtimeBridgeValue)) {
             options.RuntimeBridgeEnabled = string.Equals(runtimeBridgeValue, "true", StringComparison.OrdinalIgnoreCase) ||
                                            runtimeBridgeValue == "1";
+        }
+
+        var uiaWorkerValue = _configuration["UIA_WORKER_ENABLED"];
+        if (!string.IsNullOrWhiteSpace(uiaWorkerValue)) {
+            options.UiaWorkerEnabled = string.Equals(uiaWorkerValue, "true", StringComparison.OrdinalIgnoreCase) ||
+                                       uiaWorkerValue == "1";
         }
     }
 

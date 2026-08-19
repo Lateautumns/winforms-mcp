@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 10 - VS MCP / CodeGraph MCP contract analysis and interoperable source metadata completed locally on the stacked `feature/v17-contract-analysis` branch. Windows Core CI validation is next.
+Stage 11 - RuntimeBridge IPC hardening is green in PR #6 and the first real UIA Worker isolation slice has completed its local Gate on `feature/v18-hardening`; commit and push are next.
 
 ## Implemented
 
@@ -70,6 +70,17 @@ Stage 10 - VS MCP / CodeGraph MCP contract analysis and interoperable source met
 - Added optional forward-slash `projectRelativeFile` values for CodeGraph disambiguation while retaining all existing absolute source-location fields.
 - Added precise optional event-handler locations without changing existing event `file`, `line`, or `fullyQualifiedSymbol` fields.
 - Added the cross-MCP workflow to README; WinForms MCP still does not invoke or reference VS MCP or CodeGraph MCP.
+- Added a per-host RuntimeBridge instance ID to hello/status and optional request metadata.
+- Added connection-scoped instance validation for negotiated clients while preserving legacy clients that do not advertise an instance ID.
+- Restricted RuntimeBridge pipe access to the current Windows user on both `net48` and `net8.0-windows`.
+- Validated the named-pipe server PID before the MCP Server trusts a RuntimeBridge connection.
+- Replaced unbounded line reads with byte-bounded request/response readers and structured oversized-message errors.
+- Preserved structured error serialization by emitting an explicit JSON null result.
+- Added `Rhombus.WinFormsMcp.UiaWorker`, a restartable out-of-process UIA2 host with a fixed DTO command surface.
+- Migrated root-level `winforms_element_exists` and `winforms_wait_for_element` probes to the worker without changing either Tool contract.
+- Added bounded worker request/response transport, startup/request timeouts, timeout Kill, next-call recreation, stderr diagnostics, and deterministic disposal.
+- Kept hidden-desktop automation on the existing desktop-aware in-process path and added an explicit compatibility fallback when the worker binary is unavailable.
+- Stabilized the AntdUI layered Tooltip test fixture by invoking its existing `NoMessage()` mode before showing it, so enumeration cannot close the fixture during the bounded correlation window.
 
 ## Architecture
 
@@ -91,6 +102,8 @@ Stage 10 - VS MCP / CodeGraph MCP contract analysis and interoperable source met
 - Runtime event trace sessions own their subscriptions, have bounded lifetime/capacity, and are removed on Stop, expiry, session pressure, and host disposal.
 - SourceIndex state is isolated per canonical source root, serialized per root, bounded to a fixed number of roots/files, and never exposes Roslyn syntax objects through MCP.
 - Cross-MCP integration is metadata-only: no client, HTTP transport, project reference, package reference, or copied source was added for VS MCP or CodeGraph.
+- RuntimeBridge IPC remains local-only and read-only. New clients negotiate a per-instance nonce; older Protocol v1 clients retain a no-nonce compatibility path under the same-user pipe ACL.
+- UIA Worker requests contain only command DTOs and primitive JSON. `AutomationElement`, COM wrappers, and live UI objects never cross the process boundary.
 
 ## MCP Changes
 
@@ -99,10 +112,12 @@ Stage 10 - VS MCP / CodeGraph MCP contract analysis and interoperable source met
 - Extended: `winforms_get_source_mapping` adds optional source identity, project-relative paths, and precise handler locations; existing fields remain compatible.
 - Extended: winforms_inspect_control can return AntdUI provider and semantic data through the existing optional provider/semantic sections.
 - Unchanged: all existing 40 tool names and required parameters remain compatible; the six additions are generic diagnostics and do not add AntdUI-specific tools.
+- Stage 11 IPC hardening adds no MCP tool and changes no required tool parameter.
+- Stage 11 UIA isolation reuses the existing `element_exists` and `wait_for_element` Tools; the registry remains at 46 Tools.
 
 ## Build
 
-- Stage 10 local Gate passed.
+- Stage 11 IPC hardening and initial UIA Worker local Gates passed.
 - Format: passed.
 - Format verify: passed.
 - Restore: passed.
@@ -112,7 +127,8 @@ Stage 10 - VS MCP / CodeGraph MCP contract analysis and interoperable source met
 ## Tests
 
 - Full local Stage 8 test run: 379 total, 335 passed, 44 skipped, 0 failed (elevated desktop session).
-- Full local Stage 10 Release test run: 385 total, 341 passed, 44 skipped, 0 failed.
+- Full local Stage 11 UIA Worker Release test run before the final fixture rebuild: 402 total, 358 passed, 44 skipped, 0 failed.
+- Rebuilt layered-window fixture and ran the four-case suite for five consecutive rounds: 20 passed, 0 failed.
 - New coverage:
   - AntdUI provider detection and fallback behavior.
   - AntdUI Button, Input, InputNumber, Checkbox, Radio, Switch, and Select semantics.
@@ -154,11 +170,16 @@ Stage 10 - VS MCP / CodeGraph MCP contract analysis and interoperable source met
 - Stage 9 CI status commit 72ab00f: Core CI green (push run 32243431847 and PR run 32243436411); external Claude Code Review run 32243436427 failed with the same missing-App 401.
 - Stage 10 Core CI: green for commit ea615d9 (push run 32246092879 and PR run 32246197318).
 - Stage 10 external Claude Code Review run 32246197161 failed because the Claude Code GitHub App is not installed on this fork; no code changes were made for this external-service failure.
+- Stage 11 UIA Worker Windows Core CI: pending commit and push.
+- Stage 11 IPC hardening Core CI is green for commit `feaf781`: push run `32248894192` and PR run `32248925239`.
+- Stage 11 external Claude Code Review run `32248925255` failed because the GitHub App is not installed on the fork; no code change was made for this external-service failure.
 
 ## Git
 
-- Base Branch: feature/v16-source-index.
-- Current Branch: feature/v17-contract-analysis.
+- Base Branch: feature/v17-contract-analysis.
+- Current Branch: feature/v18-hardening.
+- Stage 11 IPC Commit: feaf781 `feat: harden runtime bridge ipc security`.
+- Draft PR: #6 targets `feature/v17-contract-analysis` with head `feature/v18-hardening`.
 - Stage 7 Commit: f3bf321 `feat: support render theme and dpi profiles`.
 - Stage 8 Commit: cd7ef0e `feat: add WinForms runtime diagnostics`.
 - Stage 8 CI Status Commit: c844c1b `docs: record stage 8 ci status`.
@@ -168,7 +189,7 @@ Stage 10 - VS MCP / CodeGraph MCP contract analysis and interoperable source met
 - Stage 6 Commit: cbc300f `feat: support AntdUI layered windows`.
 - Draft PR: #3 targets feature/v14-antdui-provider; Draft PR #4 targets feature/v15-diagnostics with head `feature/v16-source-index`.
 - Draft PR #5 targets `feature/v16-source-index` with head `feature/v17-contract-analysis`.
-- Working Tree: Stage 10 feature commit is pushed; this CI status update is ready for commit.
+- Working Tree: the initial UIA Worker isolation slice and Tooltip fixture hardening passed the final local Gate and are ready for commit.
 
 ## Risks
 
@@ -180,10 +201,13 @@ Stage 10 - VS MCP / CodeGraph MCP contract analysis and interoperable source met
 - Layered forms are transient and may disappear during enumeration; the inspector
   returns bounded metadata and warnings and tolerates disposal races.
 - Local SDK: repository-requested .NET 8.0.424 is installed and `global.json` remains unchanged.
+- Protocol v1 legacy clients can omit the instance ID; same-user ACL and PID validation remain enforced, while negotiated clients require the current instance ID after hello.
+- UIA isolation is intentionally incremental: root-level existence/wait probes are isolated now; operations that return or consume cached live `AutomationElement` instances remain in process until locator/reference rehydration is introduced.
 
 ## Next
 
-- Create the stacked Stage 11 hardening branch and begin UIA worker isolation/security hardening.
+- Commit and push the initial UIA Worker isolation slice to PR #6, then wait for Windows Core CI.
+- Continue Stage 11 with multi-process runtime identity and the remaining resource-lifecycle audit.
 
 ## Stage 10 Gate Evidence
 
@@ -195,6 +219,31 @@ Stage 10 - VS MCP / CodeGraph MCP contract analysis and interoperable source met
 - `dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false`: passed for net48, netcoreapp3.1, and net8.0-windows with 0 warnings and 0 errors.
 - Focused source identity/source mapping tests: 7 passed.
 - Full Release test run: 385 total, 341 passed, 44 skipped, 0 failed.
+
+## Stage 11 IPC Hardening Gate Evidence
+
+- RuntimeBridge lifecycle/IPC focused tests: 20 passed, 0 skipped, 0 failed.
+- `dotnet format Rhombus.WinFormsMcp.sln --verbosity quiet`: passed.
+- `dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes --verbosity quiet`: passed.
+- `dotnet restore Rhombus.WinFormsMcp.sln`: passed.
+- `dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false`: passed with 0 warnings and 0 errors.
+- `dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false`: passed for net48, netcoreapp3.1, and net8.0-windows with 0 warnings and 0 errors.
+- Full Release test run: 391 total, 347 passed, 44 skipped, 0 failed.
+- No MCP tool was added; the registry remains at 46 tools.
+
+## Stage 11 UIA Worker Gate Evidence
+
+- Added a real worker process and migrated two root-level UIA query paths; no `AutomationElement` is serialized.
+- Focused UIA Worker/configuration/official MCP SDK tests: 34 passed, 0 skipped, 0 failed.
+- Worker lifecycle coverage includes handshake, isolated query, concurrent reuse, timeout Kill/recreate, active-request disposal, headless fallback, and no orphan process.
+- `dotnet format Rhombus.WinFormsMcp.sln --verbosity quiet`: passed.
+- `dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes --verbosity quiet`: passed.
+- `dotnet restore Rhombus.WinFormsMcp.sln`: passed.
+- `dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false`: passed with 0 warnings and 0 errors.
+- `dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false`: passed for net48, netcoreapp3.1, and net8.0-windows with 0 warnings and 0 errors.
+- Full Release test rerun before the final fixture rebuild: 402 total, 358 passed, 44 skipped, 0 failed.
+- Final full Release test after the fixture rebuild: 403 total, 359 passed, 44 skipped, 0 failed.
+- The layered-window suite passed 20/20 across five consecutive rounds after the fixture calls AntdUI's existing `NoMessage()` mode; no assertion was weakened and no test was skipped.
 
 ## Stage 9 Scope
 

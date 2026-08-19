@@ -272,8 +272,12 @@ public sealed class AntdUiInspectionForm : Form {
                         parameters[1].ParameterType == typeof(string) &&
                         parameters[2].ParameterType.IsInstanceOfType(config);
                 });
-            if (constructor?.Invoke([owner, "Layered tooltip", config]) is Form tooltip)
+            if (constructor?.Invoke([owner, "Layered tooltip", config]) is Form tooltip) {
+                // Keep the fixture surface alive while RuntimeBridge enumerates transient windows.
+                layeredType.GetMethod("NoMessage", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    ?.Invoke(tooltip, null);
                 tooltip.Show(owner);
+            }
         }
         catch {
             // This is a best-effort test fixture for an internal AntdUI type.

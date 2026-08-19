@@ -15,6 +15,7 @@ using Microsoft.Extensions.Options;
 
 using Rhombus.WinFormsMcp.Rendering;
 using Rhombus.WinFormsMcp.Server.Automation;
+using Rhombus.WinFormsMcp.Server.Automation.UiaWorker;
 using Rhombus.WinFormsMcp.Server.Diagnostics;
 using Rhombus.WinFormsMcp.Server.Runtime;
 
@@ -41,6 +42,7 @@ class Program {
                 });
                 services.AddSingleton<ISessionManager, SessionManager>();
                 services.AddSingleton<IRuntimeBridgeClient, NamedPipeRuntimeBridgeClient>();
+                services.AddSingleton<UiaWorkerProcess>();
                 services.AddSingleton<SourceIndex>();
                 services.AddSingleton<SourceMappingService>();
                 services.AddSingleton<ManagedUiaCorrelationService>();

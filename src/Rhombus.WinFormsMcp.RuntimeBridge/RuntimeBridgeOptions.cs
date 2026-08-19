@@ -10,6 +10,7 @@ public sealed class RuntimeBridgeOptions {
     public string? PipeName { get; set; }
     public bool Debug { get; set; }
     public int MaxRequestBytes { get; set; } = 1_048_576;
+    public int MaxResponseBytes { get; set; } = 4 * 1_048_576;
     public int MaxDepth { get; set; } = 12;
     public int MaxNodes { get; set; } = 10_000;
     /// <summary>

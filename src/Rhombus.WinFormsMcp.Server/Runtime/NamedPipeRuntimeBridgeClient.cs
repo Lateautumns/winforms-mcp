@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
@@ -11,6 +12,7 @@ using Rhombus.WinFormsMcp.RuntimeContracts;
 namespace Rhombus.WinFormsMcp.Server.Runtime;
 
 internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisposable {
+    private const int MaximumResponseBytes = 4 * 1_048_576;
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web) {
         PropertyNameCaseInsensitive = true
     };
@@ -213,50 +215,30 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
                 PipeOptions.Asynchronous);
 
             await ConnectAsync(pipe, _options.Value.RuntimeBridgeConnectTimeoutMs, timeout.Token).ConfigureAwait(false);
-            using var reader = new StreamReader(pipe, new UTF8Encoding(false), false, 4096, leaveOpen: true);
+            ValidateServerProcess(pipe, processId);
             using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, leaveOpen: true) {
                 AutoFlush = true
             };
 
-            var request = new RuntimeRequest {
-                ProtocolVersion = RuntimeBridgeProtocol.Version,
-                RequestId = Guid.NewGuid().ToString("N"),
-                Command = command,
-                Pid = processId,
-                Arguments = JsonSerializer.SerializeToElement(arguments, SerializerOptions)
-            };
-            await writer.WriteLineAsync(JsonSerializer.Serialize(request, SerializerOptions)).ConfigureAwait(false);
-            var responseLine = await ReadLineAsync(reader, timeout.Token).ConfigureAwait(false)
-                ?? throw new RuntimeBridgeException("bridge_disconnected", "RuntimeBridge disconnected before responding.");
-            var response = JsonSerializer.Deserialize<RuntimeResponse>(responseLine, SerializerOptions)
-                ?? throw new RuntimeBridgeException("invalid_response", "RuntimeBridge returned an empty response.", false);
-
-            if (response.ProtocolVersion != RuntimeBridgeProtocol.Version) {
-                throw new RuntimeBridgeException(
-                    "protocol_version_unsupported",
-                    $"RuntimeBridge returned protocol version {response.ProtocolVersion}; expected {RuntimeBridgeProtocol.Version}.",
-                    false);
-            }
-            if (!string.Equals(response.RequestId, request.RequestId, StringComparison.Ordinal)) {
-                throw new RuntimeBridgeException(
-                    "invalid_response",
-                    "RuntimeBridge response requestId did not match the request.",
-                    false);
+            string? bridgeInstanceId = null;
+            if (command is not RuntimeBridgeProtocol.Hello and not RuntimeBridgeProtocol.GetStatus) {
+                var helloRequest = CreateRequest(processId, RuntimeBridgeProtocol.Hello, new { });
+                var helloResponse = await SendRequestAsync(pipe, writer, helloRequest, timeout.Token).ConfigureAwait(false);
+                EnsureSuccess(helloResponse);
+                var hello = DeserializeResult<BridgeHello>(helloResponse);
+                if (hello.Process.ProcessId != processId)
+                    throw new RuntimeBridgeException(
+                        "bridge_process_mismatch",
+                        $"RuntimeBridge identified process {hello.Process.ProcessId}, expected {processId}.",
+                        false);
+                bridgeInstanceId = hello.BridgeInstanceId;
             }
 
-            if (!response.Success) {
-                var error = response.Error;
-                throw new RuntimeBridgeException(
-                    error?.Code ?? "runtime_error",
-                    error?.Message ?? "RuntimeBridge returned an error.",
-                    error?.Retryable ?? true);
-            }
+            var request = CreateRequest(processId, command, arguments, bridgeInstanceId);
+            var response = await SendRequestAsync(pipe, writer, request, timeout.Token).ConfigureAwait(false);
+            EnsureSuccess(response);
 
-            if (response.Result.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
-                throw new RuntimeBridgeException("invalid_response", "RuntimeBridge response did not contain a result.", false);
-
-            return JsonSerializer.Deserialize<T>(response.Result.GetRawText(), SerializerOptions)
-                ?? throw new RuntimeBridgeException("invalid_response", "RuntimeBridge result could not be decoded.", false);
+            return DeserializeResult<T>(response);
         }
         catch (RuntimeBridgeException) {
             throw;
@@ -303,7 +285,98 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
         }
     }
 
-    private static async Task<string?> ReadLineAsync(StreamReader reader, CancellationToken cancellationToken) {
-        return await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+    private static RuntimeRequest CreateRequest(
+        int processId,
+        string command,
+        object arguments,
+        string? bridgeInstanceId = null) => new() {
+            ProtocolVersion = RuntimeBridgeProtocol.Version,
+            RequestId = Guid.NewGuid().ToString("N"),
+            Command = command,
+            Pid = processId,
+            BridgeInstanceId = bridgeInstanceId,
+            Arguments = JsonSerializer.SerializeToElement(arguments, SerializerOptions)
+        };
+
+    private static async Task<RuntimeResponse> SendRequestAsync(
+        Stream stream,
+        StreamWriter writer,
+        RuntimeRequest request,
+        CancellationToken cancellationToken) {
+        await writer.WriteLineAsync(JsonSerializer.Serialize(request, SerializerOptions)).ConfigureAwait(false);
+        var responseLine = await ReadLineAsync(stream, MaximumResponseBytes, cancellationToken).ConfigureAwait(false)
+            ?? throw new RuntimeBridgeException("bridge_disconnected", "RuntimeBridge disconnected before responding.");
+        var response = JsonSerializer.Deserialize<RuntimeResponse>(responseLine, SerializerOptions)
+            ?? throw new RuntimeBridgeException("invalid_response", "RuntimeBridge returned an empty response.", false);
+        if (!string.Equals(response.RequestId, request.RequestId, StringComparison.Ordinal))
+            throw new RuntimeBridgeException("invalid_response", "RuntimeBridge response requestId did not match the request.", false);
+        return response;
     }
+
+    private static void EnsureSuccess(RuntimeResponse response) {
+        if (response.ProtocolVersion != RuntimeBridgeProtocol.Version)
+            throw new RuntimeBridgeException(
+                "protocol_version_unsupported",
+                $"RuntimeBridge returned protocol version {response.ProtocolVersion}; expected {RuntimeBridgeProtocol.Version}.",
+                false);
+        if (response.Success)
+            return;
+
+        var error = response.Error;
+        throw new RuntimeBridgeException(
+            error?.Code ?? "runtime_error",
+            error?.Message ?? "RuntimeBridge returned an error.",
+            error?.Retryable ?? true);
+    }
+
+    private static T DeserializeResult<T>(RuntimeResponse response) {
+        if (response.Result.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+            throw new RuntimeBridgeException("invalid_response", "RuntimeBridge response did not contain a result.", false);
+        return JsonSerializer.Deserialize<T>(response.Result.GetRawText(), SerializerOptions)
+            ?? throw new RuntimeBridgeException("invalid_response", "RuntimeBridge result could not be decoded.", false);
+    }
+
+    private static async Task<string?> ReadLineAsync(
+        Stream stream,
+        int maxBytes,
+        CancellationToken cancellationToken) {
+        var limit = Math.Max(1, maxBytes);
+        var bytes = new List<byte>(Math.Min(limit, 4096));
+        var buffer = new byte[4096];
+        while (true) {
+            var count = await stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+            if (count == 0)
+                return bytes.Count == 0 ? null : DecodeLine(bytes);
+            for (var index = 0; index < count; index++) {
+                if (buffer[index] == (byte)'\n')
+                    return DecodeLine(bytes);
+                if (bytes.Count >= limit)
+                    throw new RuntimeBridgeException("response_too_large", "RuntimeBridge response exceeds the configured size limit.", false);
+                bytes.Add(buffer[index]);
+            }
+        }
+    }
+
+    private static string DecodeLine(List<byte> bytes) {
+        var count = bytes.Count;
+        if (count > 0 && bytes[count - 1] == (byte)'\r')
+            count--;
+        return new UTF8Encoding(false, true).GetString(bytes.ToArray(), 0, count);
+    }
+
+    private static void ValidateServerProcess(NamedPipeClientStream pipe, int expectedProcessId) {
+        if (!GetNamedPipeServerProcessId(pipe.SafePipeHandle.DangerousGetHandle(), out var serverProcessId))
+            throw new RuntimeBridgeException(
+                "bridge_identity_unavailable",
+                "The operating system did not expose the RuntimeBridge server process ID.",
+                true);
+        if (serverProcessId != (uint)expectedProcessId)
+            throw new RuntimeBridgeException(
+                "bridge_process_mismatch",
+                $"Named pipe server process is {serverProcessId}, expected {expectedProcessId}.",
+                false);
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetNamedPipeServerProcessId(IntPtr pipe, out uint serverProcessId);
 }

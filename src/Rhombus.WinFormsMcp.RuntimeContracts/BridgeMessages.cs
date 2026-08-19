@@ -7,6 +7,11 @@ public sealed class RuntimeRequest {
     public string RequestId { get; set; } = string.Empty;
     public string Command { get; set; } = string.Empty;
     public int Pid { get; set; }
+    /// <summary>
+    /// Per-bridge instance nonce returned by hello. It prevents a stale or
+    /// replayed request from being accepted after a target process restarts.
+    /// </summary>
+    public string? BridgeInstanceId { get; set; }
     public JsonElement Arguments { get; set; }
 }
 
@@ -29,6 +34,7 @@ public sealed class BridgeHello {
     public int ProtocolVersion { get; set; } = RuntimeBridgeProtocol.Version;
     public RuntimeProcessInfo Process { get; set; } = new();
     public string[] Capabilities { get; set; } = Array.Empty<string>();
+    public string? BridgeInstanceId { get; set; }
 }
 
 public sealed class RuntimeProcessInfo {
@@ -46,5 +52,6 @@ public sealed class BridgeStatus {
     public RuntimeProcessInfo? Process { get; set; }
     public string[] Capabilities { get; set; } = Array.Empty<string>();
     public string? PipeName { get; set; }
+    public string? BridgeInstanceId { get; set; }
     public string? Error { get; set; }
 }

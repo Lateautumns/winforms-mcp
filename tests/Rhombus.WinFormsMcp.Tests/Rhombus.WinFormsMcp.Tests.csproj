@@ -39,6 +39,7 @@
     <ProjectReference Include="../../src/Rhombus.WinFormsMcp.AntdUI.TestApp/Rhombus.WinFormsMcp.AntdUI.TestApp.csproj" />
     <ProjectReference Include="../../src/Rhombus.WinFormsMcp.RuntimeBridge/Rhombus.WinFormsMcp.RuntimeBridge.csproj" />
     <ProjectReference Include="../../src/Rhombus.WinFormsMcp.RuntimeContracts/Rhombus.WinFormsMcp.RuntimeContracts.csproj" />
+    <ProjectReference Include="../../src/Rhombus.WinFormsMcp.UiaWorker/Rhombus.WinFormsMcp.UiaWorker.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>

@@ -16,4 +16,9 @@ public class McpServerOptions {
     public bool RuntimeBridgeEnabled { get; set; } = true;
     public int RuntimeBridgeConnectTimeoutMs { get; set; } = 1000;
     public int RuntimeBridgeRequestTimeoutMs { get; set; } = 5000;
+    public bool UiaWorkerEnabled { get; set; } = true;
+    public string? UiaWorkerPath { get; set; }
+    public int UiaWorkerStartupTimeoutMs { get; set; } = 5000;
+    public int UiaWorkerRequestTimeoutMs { get; set; } = 15000;
+    public int UiaWorkerMaxResponseBytes { get; set; } = 1_048_576;
 }

@@ -31,6 +31,11 @@ public class McpServerOptionsTests {
         Assert.That(opts.RuntimeBridgeEnabled, Is.True);
         Assert.That(opts.RuntimeBridgeConnectTimeoutMs, Is.EqualTo(1000));
         Assert.That(opts.RuntimeBridgeRequestTimeoutMs, Is.EqualTo(5000));
+        Assert.That(opts.UiaWorkerEnabled, Is.True);
+        Assert.That(opts.UiaWorkerPath, Is.Null);
+        Assert.That(opts.UiaWorkerStartupTimeoutMs, Is.EqualTo(5000));
+        Assert.That(opts.UiaWorkerRequestTimeoutMs, Is.EqualTo(15000));
+        Assert.That(opts.UiaWorkerMaxResponseBytes, Is.EqualTo(1048576));
     }
 
     [Test]
@@ -154,5 +159,39 @@ public class McpServerOptionsTests {
 
         Assert.That(opts.RuntimeBridgeConnectTimeoutMs, Is.EqualTo(1000));
         Assert.That(opts.RuntimeBridgeRequestTimeoutMs, Is.EqualTo(5000));
+    }
+
+    [Test]
+    public void BindOptions_UiaWorkerSettings() {
+        var opts = Bind(new Dictionary<string, string?> {
+            ["UIA_WORKER_ENABLED"] = "0",
+            ["UIA_WORKER_PATH"] = " C:\\tools\\uiaworker.exe ",
+            ["UIA_WORKER_STARTUP_TIMEOUT_MS"] = "750",
+            ["UIA_WORKER_REQUEST_TIMEOUT_MS"] = "2500",
+            ["UIA_WORKER_MAX_RESPONSE_BYTES"] = "8192"
+        });
+
+        Assert.Multiple(() => {
+            Assert.That(opts.UiaWorkerEnabled, Is.False);
+            Assert.That(opts.UiaWorkerPath, Is.EqualTo("C:\\tools\\uiaworker.exe"));
+            Assert.That(opts.UiaWorkerStartupTimeoutMs, Is.EqualTo(750));
+            Assert.That(opts.UiaWorkerRequestTimeoutMs, Is.EqualTo(2500));
+            Assert.That(opts.UiaWorkerMaxResponseBytes, Is.EqualTo(8192));
+        });
+    }
+
+    [Test]
+    public void BindOptions_InvalidUiaWorkerLimitsUseDefaults() {
+        var opts = Bind(new Dictionary<string, string?> {
+            ["UIA_WORKER_STARTUP_TIMEOUT_MS"] = "0",
+            ["UIA_WORKER_REQUEST_TIMEOUT_MS"] = "-1",
+            ["UIA_WORKER_MAX_RESPONSE_BYTES"] = "invalid"
+        });
+
+        Assert.Multiple(() => {
+            Assert.That(opts.UiaWorkerStartupTimeoutMs, Is.EqualTo(5000));
+            Assert.That(opts.UiaWorkerRequestTimeoutMs, Is.EqualTo(15000));
+            Assert.That(opts.UiaWorkerMaxResponseBytes, Is.EqualTo(1048576));
+        });
     }
 }

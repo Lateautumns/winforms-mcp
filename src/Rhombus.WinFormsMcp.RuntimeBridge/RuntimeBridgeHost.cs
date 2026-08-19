@@ -22,6 +22,7 @@ public sealed class RuntimeBridgeHost : IDisposable {
     private readonly ManagedControlInspector _inspector;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly object _lifecycleGate = new();
+    private readonly string _bridgeInstanceId = Guid.NewGuid().ToString("N");
     private Task? _listenerTask;
     private Task? _disposeTask;
     private NamedPipeServerStream? _activeServer;
@@ -96,12 +97,7 @@ public sealed class RuntimeBridgeHost : IDisposable {
         while (!cancellationToken.IsCancellationRequested) {
             NamedPipeServerStream? server = null;
             try {
-                server = new NamedPipeServerStream(
-                    PipeName,
-                    PipeDirection.InOut,
-                    1,
-                    PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous);
+                server = CreatePipeServer();
 
                 lock (_lifecycleGate) {
                     if (_disposed || cancellationToken.IsCancellationRequested)
@@ -140,15 +136,15 @@ public sealed class RuntimeBridgeHost : IDisposable {
     }
 
     private async Task HandleClientAsync(Stream stream, CancellationToken cancellationToken) {
-        using var reader = new StreamReader(stream, new UTF8Encoding(false), false, 4096, leaveOpen: true);
         using var writer = new StreamWriter(stream, new UTF8Encoding(false), 4096, leaveOpen: true) {
             AutoFlush = true
         };
+        string? sessionInstanceId = null;
 
         while (!cancellationToken.IsCancellationRequested) {
-            string? line;
+            BoundedLine line;
             try {
-                line = await ReadLineAsync(reader, stream, cancellationToken).ConfigureAwait(false);
+                line = await ReadLineAsync(stream, _options.MaxRequestBytes, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
                 break;
@@ -157,9 +153,9 @@ public sealed class RuntimeBridgeHost : IDisposable {
                 break;
             }
 
-            if (line is null)
+            if (line.Line is null && !line.TooLarge)
                 break;
-            if (line.Length > _options.MaxRequestBytes) {
+            if (line.TooLarge) {
                 try {
                     await WriteResponseAsync(
                         writer,
@@ -177,9 +173,12 @@ public sealed class RuntimeBridgeHost : IDisposable {
 
             RuntimeResponse response;
             try {
-                var request = JsonSerializer.Deserialize<RuntimeRequest>(line, SerializerOptions)
+                var request = JsonSerializer.Deserialize<RuntimeRequest>(line.Line!, SerializerOptions)
                     ?? throw new InvalidOperationException("Request payload was empty.");
-                response = await ExecuteRequestAsync(request, cancellationToken).ConfigureAwait(false);
+                response = await ExecuteRequestAsync(request, sessionInstanceId, cancellationToken).ConfigureAwait(false);
+                if (response.Success &&
+                    string.Equals(request.Command, RuntimeBridgeProtocol.Hello, StringComparison.Ordinal))
+                    sessionInstanceId = TryGetBridgeInstanceId(response.Result);
             }
             catch (Exception ex) {
                 response = CreateError(string.Empty, GetErrorCode(ex), ex.Message, ex is IOException or TimeoutException, ex);
@@ -199,6 +198,7 @@ public sealed class RuntimeBridgeHost : IDisposable {
 
     private async Task<RuntimeResponse> ExecuteRequestAsync(
         RuntimeRequest request,
+        string? sessionInstanceId,
         CancellationToken cancellationToken) {
         var requestId = string.IsNullOrWhiteSpace(request.RequestId)
             ? Guid.NewGuid().ToString("N")
@@ -212,10 +212,24 @@ public sealed class RuntimeBridgeHost : IDisposable {
                 "process_mismatch",
                 $"RuntimeBridge belongs to process {Process.GetCurrentProcess().Id}, not {request.Pid}.",
                 false);
+        var isHandshake = string.Equals(request.Command, RuntimeBridgeProtocol.Hello, StringComparison.Ordinal) ||
+            string.Equals(request.Command, RuntimeBridgeProtocol.GetStatus, StringComparison.Ordinal);
+        if (!isHandshake) {
+            var requestHasInstanceId = !string.IsNullOrWhiteSpace(request.BridgeInstanceId);
+            var instanceMatches = sessionInstanceId is not null
+                ? string.Equals(request.BridgeInstanceId, sessionInstanceId, StringComparison.Ordinal)
+                : !requestHasInstanceId || string.Equals(request.BridgeInstanceId, _bridgeInstanceId, StringComparison.Ordinal);
+            if (!instanceMatches)
+                return CreateError(
+                    requestId,
+                    "bridge_instance_mismatch",
+                    "The request does not belong to the current RuntimeBridge instance. Call hello first.",
+                    false);
+        }
 
         try {
             object result = request.Command switch {
-                RuntimeBridgeProtocol.Hello => await _dispatcher.InvokeAsync(_inspector.GetHello, cancellationToken).ConfigureAwait(false),
+                RuntimeBridgeProtocol.Hello => await GetHelloAsync(cancellationToken).ConfigureAwait(false),
                 RuntimeBridgeProtocol.GetStatus => await GetStatusAsync(cancellationToken).ConfigureAwait(false),
                 RuntimeBridgeProtocol.GetControlTree => await _dispatcher.InvokeAsync(
                     () => _inspector.GetControlTree(
@@ -305,15 +319,52 @@ public sealed class RuntimeBridgeHost : IDisposable {
     }
 
     private async Task<BridgeStatus> GetStatusAsync(CancellationToken cancellationToken) {
-        var hello = await _dispatcher.InvokeAsync(_inspector.GetHello, cancellationToken).ConfigureAwait(false);
+        var hello = await GetHelloAsync(cancellationToken).ConfigureAwait(false);
         return new BridgeStatus {
             Available = true,
             Connected = true,
             ProtocolVersion = hello.ProtocolVersion,
             Process = hello.Process,
             Capabilities = hello.Capabilities,
-            PipeName = PipeName
+            PipeName = PipeName,
+            BridgeInstanceId = _bridgeInstanceId
         };
+    }
+
+    private async Task<BridgeHello> GetHelloAsync(CancellationToken cancellationToken) {
+        var hello = await _dispatcher.InvokeAsync(_inspector.GetHello, cancellationToken).ConfigureAwait(false);
+        hello.BridgeInstanceId = _bridgeInstanceId;
+        return hello;
+    }
+
+    private static string? TryGetBridgeInstanceId(JsonElement result) {
+        try {
+            return result.Deserialize<BridgeHello>(SerializerOptions)?.BridgeInstanceId;
+        }
+        catch (JsonException) {
+            return null;
+        }
+    }
+
+    private NamedPipeServerStream CreatePipeServer() {
+#if NETFRAMEWORK
+        return new NamedPipeServerStream(
+            PipeName,
+            PipeDirection.InOut,
+            1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous,
+            0,
+            0,
+            NamedPipeSecurity.CreateCurrentUserOnly());
+#else
+        return new NamedPipeServerStream(
+            PipeName,
+            PipeDirection.InOut,
+            1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+#endif
     }
 
     private static async Task WaitForConnectionAsync(NamedPipeServerStream server, CancellationToken cancellationToken) {
@@ -332,23 +383,46 @@ public sealed class RuntimeBridgeHost : IDisposable {
         }
     }
 
-    private static async Task<string?> ReadLineAsync(
-        StreamReader reader,
+    private static async Task<BoundedLine> ReadLineAsync(
         Stream stream,
+        int maxBytes,
         CancellationToken cancellationToken) {
         cancellationToken.ThrowIfCancellationRequested();
         using var registration = cancellationToken.Register(
             static state => ((Stream)state!).Dispose(),
             stream);
         try {
-            return await reader.ReadLineAsync().ConfigureAwait(false);
+            var limit = Math.Max(1, maxBytes);
+            var bytes = new List<byte>(Math.Min(limit, 4096));
+            var buffer = new byte[4096];
+            while (true) {
+                var count = await stream.ReadAsync(buffer, 0, buffer.Length, cancellationToken).ConfigureAwait(false);
+                if (count == 0)
+                    return new BoundedLine(bytes.Count == 0 ? null : DecodeLine(bytes), false);
+
+                for (var index = 0; index < count; index++) {
+                    var value = buffer[index];
+                    if (value == (byte)'\n')
+                        return new BoundedLine(DecodeLine(bytes), false);
+                    if (bytes.Count >= limit)
+                        return new BoundedLine(null, true);
+                    bytes.Add(value);
+                }
+            }
         }
         catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested) {
-            return null;
+            return new BoundedLine(null, false);
         }
         catch (IOException) when (cancellationToken.IsCancellationRequested) {
-            return null;
+            return new BoundedLine(null, false);
         }
+    }
+
+    private static string DecodeLine(List<byte> bytes) {
+        var count = bytes.Count;
+        if (count > 0 && bytes[count - 1] == (byte)'\r')
+            count--;
+        return new UTF8Encoding(false, true).GetString(bytes.ToArray(), 0, count);
     }
 
     private async Task CompleteDisposeAsync(Task? listenerTask) {
@@ -377,9 +451,29 @@ public sealed class RuntimeBridgeHost : IDisposable {
         }
     }
 
-    private static async Task WriteResponseAsync(StreamWriter writer, RuntimeResponse response) {
-        await writer.WriteLineAsync(JsonSerializer.Serialize(response, SerializerOptions)).ConfigureAwait(false);
+    private async Task WriteResponseAsync(StreamWriter writer, RuntimeResponse response) {
+        var json = JsonSerializer.Serialize(response, SerializerOptions);
+        if (Encoding.UTF8.GetByteCount(json) > Math.Max(1, _options.MaxResponseBytes)) {
+            response = CreateError(
+                response.RequestId,
+                "response_too_large",
+                "Runtime response exceeds the configured size limit.",
+                true);
+            json = JsonSerializer.Serialize(response, SerializerOptions);
+        }
+
+        await writer.WriteLineAsync(json).ConfigureAwait(false);
         await writer.FlushAsync().ConfigureAwait(false);
+    }
+
+    private readonly struct BoundedLine {
+        public BoundedLine(string? line, bool tooLarge) {
+            Line = line;
+            TooLarge = tooLarge;
+        }
+
+        public string? Line { get; }
+        public bool TooLarge { get; }
     }
 
     private static RuntimeResponse CreateError(
@@ -391,6 +485,7 @@ public sealed class RuntimeBridgeHost : IDisposable {
             RequestId = requestId,
             ProtocolVersion = RuntimeBridgeProtocol.Version,
             Success = false,
+            Result = JsonSerializer.SerializeToElement<object?>(null, SerializerOptions),
             Error = new RuntimeError {
                 Code = code,
                 Message = message,

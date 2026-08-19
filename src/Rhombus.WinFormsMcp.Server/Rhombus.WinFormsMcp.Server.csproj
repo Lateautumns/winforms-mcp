@@ -50,5 +50,6 @@
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.10" />
     <ProjectReference Include="..\Rhombus.WinFormsMcp.Rendering\Rhombus.WinFormsMcp.Rendering.csproj" />
     <ProjectReference Include="..\Rhombus.WinFormsMcp.RuntimeContracts\Rhombus.WinFormsMcp.RuntimeContracts.csproj" />
+    <ProjectReference Include="..\Rhombus.WinFormsMcp.UiaWorker\Rhombus.WinFormsMcp.UiaWorker.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>
