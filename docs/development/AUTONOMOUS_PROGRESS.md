@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 12 - Stable release preparation has completed its local Gate on `feature/v20-release-prep`; commit, push, Draft PR creation, and Windows Core CI verification are next.
+Stage 12 - Stable release preparation has completed its local Gate on `feature/v20-release-prep`; commit `edce1dd` is pushed in Draft PR #8, and Windows Core CI verification is pending.
 
 ## Implemented
 
@@ -356,4 +356,6 @@ None.
 - Full Release test run: 406 total, 362 passed, 44 skipped, 0 failed.
 - `scripts/package-local.ps1 -Configuration Release`: passed; all expected NuGet, NPM, and ZIP artifact assertions succeeded without publishing.
 - AntdUI reference repository remained read-only; no `.codegraph` artifacts or build outputs were added to Git.
-- Commit: pending. Draft PR: pending. Windows Core CI: pending push.
+- Commit: `edce1dd` (`chore: prepare local 1.5.12-beta release`).
+- Draft PR: #8, `feature/v20-release-prep` -> `feature/v19-runtime-identity`.
+- Windows Core CI: pending final progress-status push.
