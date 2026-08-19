@@ -73,27 +73,42 @@ public static class FormRenderingHelpers {
             : configurationDirectories
                 .Select(directory => Path.Combine(directory, preferredTfm))
                 .Where(Directory.Exists)
-                .Where(directory => Directory.EnumerateFiles(directory, "*.dll").Any())
+                .Where(HasAssemblyFiles)
                 .ToArray();
 
         if (candidates.Length == 0) {
+            // Old-style .NET Framework projects commonly emit DLLs directly
+            // into bin\\Debug or bin\\Release instead of a TFM subdirectory.
+            // Keep those directories as candidates before probing nested output
+            // folders used by SDK-style projects.
             candidates = configurationDirectories
-                .SelectMany(Directory.GetDirectories)
-                .Where(directory => Directory.EnumerateFiles(directory, "*.dll").Any())
+                .Where(HasAssemblyFiles)
+                .Concat(configurationDirectories.SelectMany(Directory.GetDirectories)
+                    .Where(HasAssemblyFiles))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
         }
 
         var latestOutput = candidates
-            .OrderByDescending(GetLatestAssemblyWriteTimeUtc)
+            .OrderByDescending(GetAssemblyFileCount)
+            .ThenByDescending(GetLatestAssemblyWriteTimeUtc)
             .FirstOrDefault();
-        return latestOutput == null ? [] : Directory.GetFiles(latestOutput, "*.dll");
+        return latestOutput == null ? [] : EnumerateAssemblyFiles(latestOutput).ToArray();
     }
 
     private static DateTime GetLatestAssemblyWriteTimeUtc(string directory) =>
-        Directory.EnumerateFiles(directory, "*.dll")
+        EnumerateAssemblyFiles(directory)
             .Select(File.GetLastWriteTimeUtc)
             .DefaultIfEmpty(DateTime.MinValue)
             .Max();
+
+    private static int GetAssemblyFileCount(string directory) => EnumerateAssemblyFiles(directory).Count();
+
+    private static bool HasAssemblyFiles(string directory) => EnumerateAssemblyFiles(directory).Any();
+
+    private static IEnumerable<string> EnumerateAssemblyFiles(string directory) =>
+        Directory.EnumerateFiles(directory, "*.dll")
+            .Concat(Directory.EnumerateFiles(directory, "*.exe"));
 
     /// <summary>
     /// Parse the designer file to extract namespace, class name, and event handler names.
