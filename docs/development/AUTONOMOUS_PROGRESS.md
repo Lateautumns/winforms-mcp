@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 7 - Rendering / Theme / DPI complete; commit and PR #2 Windows Core CI pending.
+Stage 7 - Rendering / Theme / DPI complete; local and Windows Core CI green.
 
 ## Implemented
 
@@ -122,19 +122,20 @@ Stage 7 - Rendering / Theme / DPI complete; commit and PR #2 Windows Core CI pen
 - Stage 5 Core CI: green for commit 700adc8 (push run 32213525287 and PR run 32213528776).
 - Stage 6 Core CI: green for commit cbc300f (push run 32216808052 and PR run 32216813261).
 - Stage 6 external Claude Code Review: failed because the Claude Code GitHub App is not installed on the fork; no code changes were made for this external-service failure.
-- Stage 7 Core CI: pending push for the Stage 7 commit.
-- Stage 7 external Claude Code Review: expected to remain unavailable because the Claude Code GitHub App is not installed on the fork.
+- Stage 7 Core CI: green for commit f3bf321 (push run 32221982955 and PR run 32221986299).
+- Stage 7 external Claude Code Review: failed with 401 because the Claude Code GitHub App is not installed on this fork; no code changes were made for this external-service failure.
 
 ## Git
 
 - Base Branch: feature/v11-foundation-refactor.
 - Current Branch: feature/v14-antdui-provider.
-- Current Head Before Stage 7 Commit: 4cbc821 `docs: record stage 6 ci status`.
+- Stage 7 Commit: f3bf321 `feat: support render theme and dpi profiles`.
+- Current Head: f3bf321 `feat: support render theme and dpi profiles`.
 - Stage 4 Commit: b7ac9f2 feat: add AntdUI basic control inspection.
 - Stage 5 Commit: 700adc8 feat: add AntdUI complex semantic inspection.
 - Stage 6 Commit: cbc300f `feat: support AntdUI layered windows`.
 - Draft PR: #2, target feature/v11-foundation-refactor.
-- Working Tree: Stage 7 changes prepared; commit/push pending after final Gate.
+- Working Tree: clean after Stage 7 commit and CI status update pending.
 
 ## Risks
 
@@ -149,7 +150,7 @@ Stage 7 - Rendering / Theme / DPI complete; commit and PR #2 Windows Core CI pen
 
 ## Next
 
-- Stage 7 local Gate is green after the AntdUI owner-drawn input regression fix; commit, push, and verify Windows Core CI, then continue to Stage 8 Diagnostics.
+- Stage 7 local and Windows Core CI are green after the AntdUI owner-drawn input regression fix; continue to Stage 8 Diagnostics on a stacked feature branch.
 
 ## Hard Blocker
 
