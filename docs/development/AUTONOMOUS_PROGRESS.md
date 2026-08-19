@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 12 - Stable release preparation has completed its local Gate on `feature/v20-release-prep`; commit `edce1dd` is pushed in Draft PR #8, and Windows Core CI verification is pending.
+Stage 12 - Stable release preparation has completed its local and Windows Core CI Gates on `feature/v20-release-prep`; Draft PR #8 is ready for human review.
 
 ## Implemented
 
