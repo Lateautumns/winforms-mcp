@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 9 - Incremental SourceIndex completed locally on the stacked `feature/v16-source-index` branch after Stage 8 Core CI completed successfully. Stage 10 contract analysis is next after Core CI validation.
+Stage 9 - Incremental SourceIndex completed and Core CI validated on the stacked `feature/v16-source-index` branch. Stage 10 contract analysis is next.
 
 ## Implemented
 
@@ -196,7 +196,8 @@ None.
 - `dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false`: passed for net48, netcoreapp3.1, and net8.0-windows with 0 warnings and 0 errors.
 - Focused SourceIndex/source-mapping tests: 6 passed.
 - Full Release test run: 384 total, 340 passed, 44 skipped, 0 failed.
-- Core CI: pending Stage 9 commit push.
+- Core CI: green for commit `5779490` on both push run `32242797084` and pull-request run `32242800459`.
+- External Claude Code Review run `32242800339`: failed with 401 because the Claude Code GitHub App is not installed on the fork; this is non-blocking and required no code change.
 
 ## Stage 6 Gate Evidence
 
