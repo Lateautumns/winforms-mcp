@@ -314,4 +314,22 @@ public sealed class SourceMappingSnapshot {
     public string? CodeBehindFile { get; set; }
     public Dictionary<string, EventHandlerSnapshot> Events { get; set; } = new(StringComparer.Ordinal);
     public List<string> Warnings { get; set; } = new();
+    /// <summary>
+    /// Read-only metadata describing the bounded source-index refresh used for this mapping.
+    /// This is optional so existing consumers can continue to deserialize the original contract.
+    /// </summary>
+    public SourceIndexSnapshot? Index { get; set; }
+}
+
+public sealed class SourceIndexSnapshot {
+    public string Root { get; set; } = string.Empty;
+    public int MaxFiles { get; set; }
+    public int Scanned { get; set; }
+    public int Parsed { get; set; }
+    public int Reused { get; set; }
+    public int Removed { get; set; }
+    public int CachedFiles { get; set; }
+    public bool Truncated { get; set; }
+    public int ParseErrors { get; set; }
+    public List<string> Warnings { get; set; } = new();
 }

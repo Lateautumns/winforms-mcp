@@ -31,7 +31,8 @@ internal sealed class GetSourceMappingToolHandler : IToolHandler {
                 pid,
                 inspection.Summary.Identity,
                 ToolArguments.GetString(arguments, "sourceRoot"),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                ToolArguments.GetNullableInt32(arguments, "maxFiles")).ConfigureAwait(false);
             return ToolJson.Result(new { success = true, mapping });
         }
         catch (RuntimeBridgeException ex) {
