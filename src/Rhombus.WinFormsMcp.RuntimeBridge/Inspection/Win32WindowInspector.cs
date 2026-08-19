@@ -12,7 +12,10 @@ internal static class Win32WindowInspector {
     private const uint GwHwndNext = 2;
     private const uint GwOwner = 4;
 
-    public static List<WindowSnapshot> GetProcessWindows(int processId, int maxNodes) {
+    public static List<WindowSnapshot> GetProcessWindows(
+        int processId,
+        int maxNodes,
+        IReadOnlyDictionary<IntPtr, ProviderWindowMetadataSnapshot>? providerMetadata = null) {
         var result = new List<WindowSnapshot>();
         var handles = new List<IntPtr>();
         EnumWindows((hwnd, _) => {
@@ -27,7 +30,7 @@ internal static class Win32WindowInspector {
         foreach (var hwnd in handles) {
             if (count.Value >= maxNodes)
                 break;
-            var snapshot = CreateSnapshot(hwnd, processId, parent: null, count, maxNodes, visited);
+            var snapshot = CreateSnapshot(hwnd, processId, parent: null, count, maxNodes, visited, providerMetadata);
             if (snapshot is not null)
                 result.Add(snapshot);
         }
@@ -41,7 +44,8 @@ internal static class Win32WindowInspector {
         IntPtr? parent,
         Counter count,
         int maxNodes,
-        HashSet<IntPtr> visited) {
+        HashSet<IntPtr> visited,
+        IReadOnlyDictionary<IntPtr, ProviderWindowMetadataSnapshot>? providerMetadata) {
         if (count.Value >= maxNodes || hwnd == IntPtr.Zero || !visited.Add(hwnd))
             return null;
 
@@ -52,6 +56,8 @@ internal static class Win32WindowInspector {
         var className = ReadClassName(hwnd);
         var title = ReadTitle(hwnd);
         var kind = Classify(hwnd, className, parent, owner);
+        if (providerMetadata is not null && providerMetadata.TryGetValue(hwnd, out var providerWindow))
+            kind = ClassifyProviderWindow(providerWindow.SemanticType, kind);
         var snapshot = new WindowSnapshot {
             Hwnd = FormatHandle(hwnd),
             ProcessId = processId,
@@ -70,6 +76,13 @@ internal static class Win32WindowInspector {
             Kind = kind
         };
 
+        if (providerMetadata is not null && providerMetadata.TryGetValue(hwnd, out var metadata)) {
+            metadata.Hwnd = snapshot.Hwnd;
+            metadata.Bounds = snapshot.Bounds;
+            metadata.Visible = snapshot.Visible;
+            snapshot.ProviderWindowMetadata = metadata;
+        }
+
         // EnumChildWindows returns all descendants, not only immediate
         // children. Walk the sibling chain so the serialized tree has no
         // duplicate descendants and parent links remain accurate.
@@ -79,7 +92,7 @@ internal static class Win32WindowInspector {
             GetWindowThreadProcessId(child, out var childPid);
             if (childPid != processId)
                 continue;
-            var childSnapshot = CreateSnapshot(child, processId, hwnd, count, maxNodes, visited);
+            var childSnapshot = CreateSnapshot(child, processId, hwnd, count, maxNodes, visited, providerMetadata);
             if (childSnapshot is not null)
                 snapshot.Children.Add(childSnapshot);
         }
@@ -102,6 +115,15 @@ internal static class Win32WindowInspector {
         var style = GetWindowLongPtr(hwnd, GwlExStyle).ToInt64();
         return (style & WsExLayered) != 0 ? "Layered Window" : "Main Window";
     }
+
+    private static string ClassifyProviderWindow(string semanticType, string fallback) => semanticType switch {
+        "select-dropdown" or "menu-popup" or "context-menu" or "dropdown" => "Popup",
+        "tooltip" => "Tooltip",
+        "modal" => "Dialog",
+        "drawer" or "message" or "notification" => "Layered Window",
+        "layered-window" => "Layered Window",
+        _ => fallback
+    };
 
     private static string ReadTitle(IntPtr hwnd) {
         var length = GetWindowTextLength(hwnd);

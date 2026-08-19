@@ -9,6 +9,7 @@ namespace Rhombus.WinFormsMcp.Server.Automation;
 /// Performs UIA-backed and simulated mouse/keyboard input.
 /// </summary>
 internal sealed class InputService {
+    private const int MaxWindowMessageTextLength = 4096;
     private readonly HeadlessDesktopService _desktopService;
 
     public InputService(HeadlessDesktopService desktopService) {
@@ -55,37 +56,46 @@ internal sealed class InputService {
 
     public void TypeText(AutomationElement element, string text, bool clearFirst = false) {
         var valuePattern = element.Patterns.Value.PatternOrDefault;
+        if (valuePattern == null || valuePattern.IsReadOnly)
+            valuePattern = FindWritableValueElement(element)?.Patterns.Value.PatternOrDefault;
         if (valuePattern != null && !valuePattern.IsReadOnly) {
             valuePattern.SetValue(clearFirst ? text : (valuePattern.Value ?? "") + text);
             return;
         }
+
+        if (TrySendTextViaWindowMessage(element, text, clearFirst))
+            return;
 
         _desktopService.EnsureInputAvailable(
             element,
             "type_text (ValuePattern not available on this control)",
             "send_keys on a visible process, or set_value if the control supports ValuePattern");
         element.Focus();
-        if (clearFirst) {
-            System.Windows.Forms.SendKeys.SendWait("^a");
-            Thread.Sleep(100);
-        }
-        System.Windows.Forms.SendKeys.SendWait(text);
+        if (clearFirst)
+            ClearFocusedText();
+        if (!PasteTextSafely(element, text))
+            SendTextSafely(element, text);
     }
 
     public void SetValue(AutomationElement element, string value) {
         var valuePattern = element.Patterns.Value.PatternOrDefault;
+        if (valuePattern == null || valuePattern.IsReadOnly)
+            valuePattern = FindWritableValueElement(element)?.Patterns.Value.PatternOrDefault;
         if (valuePattern != null && !valuePattern.IsReadOnly) {
             valuePattern.SetValue(value);
             return;
         }
 
+        if (TrySendTextViaWindowMessage(element, value, clearFirst: true))
+            return;
+
         _desktopService.EnsureInputAvailable(
             element,
             "set_value (ValuePattern not available or read-only on this control)");
         element.Focus();
-        System.Windows.Forms.SendKeys.SendWait("^a");
-        Thread.Sleep(50);
-        System.Windows.Forms.SendKeys.SendWait(value);
+        ClearFocusedText();
+        if (!PasteTextSafely(element, value))
+            SendTextSafely(element, value);
     }
 
     public void DragDrop(AutomationElement source, AutomationElement target) {
@@ -122,4 +132,181 @@ internal sealed class InputService {
         }
         System.Windows.Forms.SendKeys.SendWait(keys);
     }
+
+    private static void ClearFocusedText() {
+        System.Windows.Forms.SendKeys.SendWait("^a");
+        Thread.Sleep(50);
+        System.Windows.Forms.SendKeys.SendWait("{DELETE}");
+        Thread.Sleep(50);
+    }
+
+    private static void SendTextSafely(AutomationElement target, string text) {
+        foreach (var character in text) {
+            var keys = EncodeSendKeysCharacter(character);
+            if (keys.Length == 0)
+                continue;
+            target.Focus();
+            Thread.Sleep(5);
+            System.Windows.Forms.SendKeys.SendWait(keys);
+            Thread.Sleep(15);
+        }
+    }
+
+    private static bool PasteTextSafely(AutomationElement target, string text) {
+        if (text.Length == 0)
+            return true;
+
+        System.Windows.Forms.IDataObject? previousData = null;
+        var set = RunClipboardOnStaThread(() => {
+            previousData = System.Windows.Forms.Clipboard.GetDataObject();
+            System.Windows.Forms.Clipboard.SetText(text);
+        });
+        if (!set)
+            return false;
+
+        try {
+            target.Focus();
+            Thread.Sleep(25);
+            System.Windows.Forms.SendKeys.SendWait("^v");
+            Thread.Sleep(50);
+            return true;
+        }
+        finally {
+            RunClipboardOnStaThread(() => {
+                if (previousData is not null)
+                    System.Windows.Forms.Clipboard.SetDataObject(previousData, copy: true);
+                else
+                    System.Windows.Forms.Clipboard.Clear();
+            });
+        }
+    }
+
+    private static bool RunClipboardOnStaThread(Action action) {
+        var succeeded = false;
+        var thread = new Thread(() => {
+            try {
+                action();
+                succeeded = true;
+            }
+            catch {
+                succeeded = false;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        return thread.Join(TimeSpan.FromSeconds(3)) && succeeded;
+    }
+
+    private static AutomationElement? FindWritableValueElement(AutomationElement root) {
+        var queue = new Queue<(AutomationElement Element, int Depth)>();
+        queue.Enqueue((root, 0));
+        var visited = 0;
+
+        while (queue.Count > 0 && visited < 100) {
+            var (element, depth) = queue.Dequeue();
+            visited++;
+
+            if (depth > 0) {
+                try {
+                    var valuePattern = element.Patterns.Value.PatternOrDefault;
+                    if (valuePattern != null && !valuePattern.IsReadOnly)
+                        return element;
+                }
+                catch {
+                    // UIA providers can invalidate descendants while walking.
+                }
+            }
+
+            if (depth >= 4)
+                continue;
+
+            AutomationElement[] children;
+            try {
+                children = element.FindAllChildren();
+            }
+            catch {
+                continue;
+            }
+
+            foreach (var child in children) {
+                if (visited + queue.Count >= 100)
+                    break;
+                queue.Enqueue((child, depth + 1));
+            }
+        }
+
+        return null;
+    }
+
+    private static bool TrySendTextViaWindowMessage(
+        AutomationElement element,
+        string text,
+        bool clearFirst) {
+        var hwnd = GetNativeWindowHandle(element);
+        if (hwnd == IntPtr.Zero || text.Length > MaxWindowMessageTextLength)
+            return false;
+
+        if (clearFirst) {
+            var currentText = GetElementText(element);
+            if (currentText.Length > MaxWindowMessageTextLength
+                || !NativeMethods.TrySendKeyMessage(hwnd, System.Windows.Forms.Keys.End)) {
+                return false;
+            }
+
+            for (var index = 0; index < currentText.Length; index++) {
+                if (!NativeMethods.TrySendKeyMessage(hwnd, System.Windows.Forms.Keys.Back))
+                    return false;
+            }
+        }
+
+        foreach (var character in text) {
+            var sent = character switch {
+                '\r' => true,
+                '\n' => NativeMethods.TrySendKeyMessage(hwnd, System.Windows.Forms.Keys.Enter),
+                '\t' => NativeMethods.TrySendKeyMessage(hwnd, System.Windows.Forms.Keys.Tab),
+                _ => NativeMethods.TrySendCharMessage(hwnd, character)
+            };
+            if (!sent)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static string GetElementText(AutomationElement element) {
+        try {
+            return element.Name ?? string.Empty;
+        }
+        catch {
+            return string.Empty;
+        }
+    }
+
+    private static IntPtr GetNativeWindowHandle(AutomationElement element) {
+        try {
+            return (IntPtr)element.Properties.NativeWindowHandle.ValueOrDefault;
+        }
+        catch {
+            return IntPtr.Zero;
+        }
+    }
+
+    private static string EncodeSendKeysCharacter(char character) =>
+        character switch {
+            '\r' => string.Empty,
+            '\n' => "{ENTER}",
+            '\t' => "{TAB}",
+            ' ' => " ",
+            '+' => "{+}",
+            '^' => "{^}",
+            '%' => "{%}",
+            '~' => "{~}",
+            '(' => "{(}",
+            ')' => "{)}",
+            '[' => "{[}",
+            ']' => "{]}",
+            '{' => "{{}",
+            '}' => "{}}",
+            _ => character.ToString()
+        };
 }

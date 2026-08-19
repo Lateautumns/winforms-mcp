@@ -51,7 +51,10 @@ internal static class ToolDefinitionCatalog {
             ("menuPath", Array("Menu labels from root to target", "string")), ("pid", Integer("Optional process ID"))), "menuPath"),
         Define(ToolNames.RenderForm, "Render a WinForms Designer file to a PNG without building the target project.", Props(
             ("designerFilePath", String("Designer.cs or companion .cs path")),
-            ("outputPath", String("Optional path where the PNG is also saved"))), "designerFilePath"),
+            ("outputPath", String("Optional path where the PNG is also saved")),
+            ("theme", String("Optional visual theme: Light, Dark, or Auto")),
+            ("dpi", Integer("Optional render DPI: 96, 120, 144, or 192")),
+            ("providerProfile", String("Optional provider profile: AntdUI or StandardWinForms"))), "designerFilePath"),
         Define(ToolNames.GetElementTree, "Return a bounded UI Automation tree and cache every returned element.", Props(
             ("pid", Integer("Process whose main window is the root")), ("elementId", String("Optional cached root element ID")),
             ("depth", Integer("Maximum traversal depth")), ("maxElements", Integer("Maximum returned elements")))),
@@ -94,14 +97,22 @@ internal static class ToolDefinitionCatalog {
         Define(ToolNames.GetControlTree, "Return a bounded managed Control.Controls tree from a target WinForms process.", Props(
             ("pid", Integer("Target process ID")), ("rootId", String("Optional managed control ID")),
             ("maxDepth", Integer("Maximum tree depth")), ("maxNodes", Integer("Maximum returned nodes"))), "pid"),
-        Define(ToolNames.InspectControl, "Inspect one managed WinForms control's identity, state, safe properties, and layout.", Props(
+        Define(ToolNames.InspectControl, "Inspect one managed WinForms control's identity, state, safe properties, layout, and optional provider semantics.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID")),
-            ("sections", Array("identity, state, properties, layout, or bindings", "string")),
-            ("includeProperties", Array("Additional safe property names to read", "string"))), "pid", "controlId"),
+            ("sections", Array("identity, state, properties, layout, bindings, provider, or semantic", "string")),
+            ("includeProperties", Array("Additional safe property names to read", "string")),
+            ("maxDepth", Integer("Maximum provider semantic hierarchy depth")),
+            ("maxNodes", Integer("Maximum provider semantic nodes")),
+            ("start", Integer("Zero-based offset for top-level semantic collections")),
+            ("count", Integer("Maximum top-level semantic collection items")),
+            ("startRow", Integer("Zero-based AntdUI table row offset")),
+            ("rowCount", Integer("Maximum AntdUI table rows")),
+            ("rowScope", String("AntdUI table row scope: data, visible, or rendered"))), "pid", "controlId"),
         Define(ToolNames.GetAncestors, "Return the managed parent chain for a control, nearest parent first.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID"))), "pid", "controlId"),
         Define(ToolNames.GetWindowTree, "Return the bounded HWND tree for a target process, including dialogs and owned/pop-up windows.", Props(
-            ("pid", Integer("Target process ID")), ("maxNodes", Integer("Maximum returned HWND nodes"))), "pid"),
+            ("pid", Integer("Target process ID")), ("maxNodes", Integer("Maximum returned HWND nodes")),
+            ("maxItems", Integer("Maximum provider popup items per window"))), "pid"),
         Define(ToolNames.GetBindings, "Read DataBindings attached to one managed WinForms control.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID"))), "pid", "controlId"),
         Define(ToolNames.GetSourceMapping, "Map a managed control to its Designer declaration, initialization, and event handler symbols.", Props(

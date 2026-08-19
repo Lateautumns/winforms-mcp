@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows.Forms;
 
+using Rhombus.WinFormsMcp.RuntimeBridge.Inspection.Providers;
 using Rhombus.WinFormsMcp.RuntimeContracts;
 
 namespace Rhombus.WinFormsMcp.RuntimeBridge.Inspection;
@@ -15,6 +16,9 @@ namespace Rhombus.WinFormsMcp.RuntimeBridge.Inspection;
 /// Every public method is called by <see cref="Hosting.UiThreadDispatcher"/>.
 /// </summary>
 internal sealed class ManagedControlInspector {
+    private const int DefaultSemanticMaxDepth = 4;
+    private const int DefaultSemanticMaxNodes = 200;
+
     private static readonly string[] SafeProperties = [
         "Name", "Text", "Enabled", "Visible", "ReadOnly", "TabIndex", "Font", "ForeColor", "BackColor",
         "Dock", "Anchor", "Padding", "Margin", "AutoSize", "MinimumSize", "MaximumSize", "ClientSize",
@@ -24,9 +28,11 @@ internal sealed class ManagedControlInspector {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly RuntimeBridgeOptions _options;
     private readonly ControlIdentityRegistry _identityRegistry = new();
+    private readonly IControlProviderRegistry _providerRegistry;
 
-    public ManagedControlInspector(RuntimeBridgeOptions options) {
+    public ManagedControlInspector(RuntimeBridgeOptions options, IControlProviderRegistry? providerRegistry = null) {
         _options = options;
+        _providerRegistry = providerRegistry ?? ControlProviderRegistry.CreateDefault();
     }
 
     public BridgeHello GetHello() {
@@ -41,7 +47,9 @@ internal sealed class ManagedControlInspector {
                 BridgeVersion = _options.BridgeVersion
             },
             Capabilities = [
-                "controlTree", "properties", "layout", "ancestors", "windowTree", "bindings", "uiThreadSnapshots"
+                "controlTree", "properties", "layout", "ancestors", "windowTree", "bindings",
+                "uiThreadSnapshots", "providerSemantics", "providerSemanticPaging", "layeredWindows",
+                "providerWindowMetadata"
             ]
         };
     }
@@ -78,7 +86,8 @@ internal sealed class ManagedControlInspector {
         int processId,
         string controlId,
         IReadOnlyCollection<string>? sections,
-        IReadOnlyCollection<string>? includeProperties) {
+        IReadOnlyCollection<string>? includeProperties,
+        ControlSemanticOptions? semanticOptions = null) {
         EnsureCurrentProcess(processId);
         var control = RequireControl(controlId);
         var requestedSections = sections is { Count: > 0 }
@@ -97,6 +106,12 @@ internal sealed class ManagedControlInspector {
             result.Layout = BuildLayout(control);
         if (requestedSections.Contains("bindings"))
             result.Bindings = ReadBindings(control);
+        if (requestedSections.Contains("provider") || requestedSections.Contains("semantic")) {
+            var provider = _providerRegistry.Resolve(control);
+            result.Provider = DescribeProvider(provider, control);
+            if (requestedSections.Contains("semantic"))
+                result.Semantic = InspectProvider(provider, control, result.Provider, semanticOptions);
+        }
 
         return result;
     }
@@ -119,16 +134,82 @@ internal sealed class ManagedControlInspector {
         return result;
     }
 
-    public List<WindowSnapshot> GetWindowTree(int processId, int maxNodes) {
+    public List<WindowSnapshot> GetWindowTree(int processId, int maxNodes, int maxItems = 100) {
         EnsureCurrentProcess(processId);
+        _identityRegistry.ForgetDisposed();
+        var boundedItems = Clamp(maxItems, 0, Math.Max(0, _options.MaxProviderWindowItems));
+        var providerMetadata = LayeredWindowInspector.InspectOpenForms(
+            processId,
+            _identityRegistry,
+            GetControlPath,
+            boundedItems);
         return Win32WindowInspector.GetProcessWindows(
             processId,
-            Clamp(maxNodes, 1, Math.Max(1, _options.MaxNodes)));
+            Clamp(maxNodes, 1, Math.Max(1, _options.MaxNodes)),
+            providerMetadata);
     }
 
     public List<ControlBindingSnapshot> GetBindings(int processId, string controlId) {
         EnsureCurrentProcess(processId);
         return ReadBindings(RequireControl(controlId));
+    }
+
+    private ControlProviderSnapshot DescribeProvider(IControlProvider provider, Control control) {
+        try {
+            return provider.Describe(control);
+        }
+        catch (Exception ex) {
+            return new ControlProviderSnapshot {
+                ProviderName = provider.ProviderName,
+                Priority = provider.Priority,
+                RuntimeType = control.GetType().FullName ?? control.GetType().Name,
+                SemanticType = "unknown",
+                Capabilities = [$"describe_error:{ex.GetType().Name}"]
+            };
+        }
+    }
+
+    private ControlSemanticSnapshot InspectProvider(
+        IControlProvider provider,
+        Control control,
+        ControlProviderSnapshot providerSnapshot,
+        ControlSemanticOptions? semanticOptions) {
+        try {
+            return provider.Inspect(
+                control,
+                CreateProviderContext(semanticOptions));
+        }
+        catch (Exception ex) {
+            return new ControlSemanticSnapshot {
+                ProviderName = provider.ProviderName,
+                RuntimeType = providerSnapshot.RuntimeType,
+                SemanticType = providerSnapshot.SemanticType,
+                Errors = {
+                    ["<provider>"] = ex.Message
+                }
+            };
+        }
+    }
+
+    private ControlProviderContext CreateProviderContext(ControlSemanticOptions? semanticOptions) {
+        var maxDepth = Clamp(
+            semanticOptions?.MaxDepth ?? DefaultSemanticMaxDepth,
+            0,
+            Math.Max(0, _options.MaxDepth));
+        var maxNodes = Clamp(
+            semanticOptions?.MaxNodes ?? DefaultSemanticMaxNodes,
+            1,
+            Math.Max(1, _options.MaxNodes));
+        return new ControlProviderContext(
+            maxDepth,
+            maxNodes,
+            GetControlId,
+            ToJsonValue,
+            semanticOptions?.Start,
+            semanticOptions?.Count,
+            semanticOptions?.StartRow,
+            semanticOptions?.RowCount,
+            semanticOptions?.RowScope);
     }
 
     private ControlTreeNode BuildTreeNode(

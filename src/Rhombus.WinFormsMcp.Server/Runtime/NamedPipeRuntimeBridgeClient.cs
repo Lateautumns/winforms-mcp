@@ -73,11 +73,12 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
         string controlId,
         IReadOnlyCollection<string>? sections,
         IReadOnlyCollection<string>? includeProperties,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        ControlSemanticOptions? semanticOptions = null) =>
         SendAsync<ControlInspectionSnapshot>(
             processId,
             RuntimeBridgeProtocol.InspectControl,
-            new { controlId, sections, includeProperties },
+            new { controlId, sections, includeProperties, semanticOptions },
             cancellationToken);
 
     public async Task<IReadOnlyList<ControlAncestorSnapshot>> GetAncestorsAsync(
@@ -90,14 +91,21 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
             new { controlId },
             cancellationToken).ConfigureAwait(false);
 
-    public async Task<IReadOnlyList<WindowSnapshot>> GetWindowTreeAsync(
+    public Task<IReadOnlyList<WindowSnapshot>> GetWindowTreeAsync(
         int processId,
         int maxNodes,
         CancellationToken cancellationToken) =>
+        GetWindowTreeAsync(processId, maxNodes, cancellationToken, 100);
+
+    public async Task<IReadOnlyList<WindowSnapshot>> GetWindowTreeAsync(
+        int processId,
+        int maxNodes,
+        CancellationToken cancellationToken,
+        int maxItems) =>
         await SendAsync<List<WindowSnapshot>>(
             processId,
             RuntimeBridgeProtocol.GetWindowTree,
-            new { maxNodes },
+            new { maxNodes, maxItems },
             cancellationToken).ConfigureAwait(false);
 
     public async Task<IReadOnlyList<ControlBindingSnapshot>> GetBindingsAsync(

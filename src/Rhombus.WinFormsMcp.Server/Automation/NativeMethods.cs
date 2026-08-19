@@ -70,7 +70,27 @@ internal static class NativeMethods {
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(
+        IntPtr hWnd,
+        uint Msg,
+        IntPtr wParam,
+        IntPtr lParam,
+        uint fuFlags,
+        uint uTimeout,
+        out UIntPtr lpdwResult);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool IsWindow(IntPtr hWnd);
+
     private const uint WM_CONTEXTMENU = 0x007B;
+    private const uint WM_CHAR = 0x0102;
+    private const uint WM_KEYDOWN = 0x0100;
+    private const uint WM_KEYUP = 0x0101;
+    private const uint SMTO_BLOCK = 0x0001;
+    private const uint SMTO_ABORTIFHUNG = 0x0002;
+    private const uint SMTO_ERRORONEXIT = 0x0020;
+    private const uint WindowMessageTimeoutMs = 1000;
 
     /// <summary>
     /// Send WM_CONTEXTMENU to a window. Works on hidden desktops because it uses
@@ -78,6 +98,38 @@ internal static class NativeMethods {
     /// </summary>
     public static void SendContextMenuMessage(IntPtr hWnd) {
         SendMessage(hWnd, WM_CONTEXTMENU, hWnd, new IntPtr(-1));
+    }
+
+    /// <summary>
+    /// Sends a Unicode character directly to a control HWND. This is useful for
+    /// custom-drawn controls that expose no UIA ValuePattern and avoids relying on
+    /// the process-wide foreground window or keyboard focus.
+    /// </summary>
+    public static bool TrySendCharMessage(IntPtr hWnd, char character) {
+        return TrySendWindowMessage(hWnd, WM_CHAR, (IntPtr)character);
+    }
+
+    /// <summary>
+    /// Sends a virtual key directly to a control HWND.
+    /// </summary>
+    public static bool TrySendKeyMessage(IntPtr hWnd, System.Windows.Forms.Keys key) {
+        return TrySendWindowMessage(hWnd, WM_KEYDOWN, (IntPtr)(int)key)
+            && TrySendWindowMessage(hWnd, WM_KEYUP, (IntPtr)(int)key);
+    }
+
+    private static bool TrySendWindowMessage(IntPtr hWnd, uint message, IntPtr wParam) {
+        if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
+            return false;
+
+        var result = SendMessageTimeout(
+            hWnd,
+            message,
+            wParam,
+            IntPtr.Zero,
+            SMTO_BLOCK | SMTO_ABORTIFHUNG | SMTO_ERRORONEXIT,
+            WindowMessageTimeoutMs,
+            out _);
+        return result != IntPtr.Zero;
     }
 
     // ── Window capture ──

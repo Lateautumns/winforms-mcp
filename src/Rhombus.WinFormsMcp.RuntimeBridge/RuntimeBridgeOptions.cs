@@ -12,6 +12,10 @@ public sealed class RuntimeBridgeOptions {
     public int MaxRequestBytes { get; set; } = 1_048_576;
     public int MaxDepth { get; set; } = 12;
     public int MaxNodes { get; set; } = 10_000;
+    /// <summary>
+    /// Maximum provider popup items inspected for one HWND tree request.
+    /// </summary>
+    public int MaxProviderWindowItems { get; set; } = 100;
     public string BridgeVersion { get; set; } = GetAssemblyVersion();
 
     internal string EffectivePipeName => string.IsNullOrWhiteSpace(PipeName)

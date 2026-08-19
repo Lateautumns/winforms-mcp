@@ -22,6 +22,21 @@ internal sealed class RenderFormToolHandler : IToolHandler {
     public async ValueTask<JsonElement> ExecuteAsync(JsonElement arguments, CancellationToken cancellationToken) {
         var requestedPath = ToolArguments.RequireString(arguments, "designerFilePath");
         var outputPath = ToolArguments.GetString(arguments, "outputPath");
+        var theme = ToolArguments.GetString(arguments, "theme");
+        var dpi = ToolArguments.GetNullableInt32(arguments, "dpi");
+        var providerProfile = ToolArguments.GetString(arguments, "providerProfile");
+        // Validate before reading files or starting a host so invalid profile
+        // values are returned as a normal structured MCP argument error.
+        RenderVisualOptions visualOptions;
+        try {
+            visualOptions = RenderVisualOptions.Normalize(theme, dpi, providerProfile);
+        }
+        catch (InvalidOperationException exception) {
+            throw new ToolExecutionException(
+                FormRenderErrors.GetCode(exception) ?? "invalid_render_profile",
+                exception.Message,
+                innerException: exception);
+        }
         var designerFile = FormRenderingHelpers.ResolveDesignerFile(requestedPath);
         var designerContent = await File.ReadAllTextAsync(designerFile, cancellationToken);
 
@@ -63,7 +78,10 @@ internal sealed class RenderFormToolHandler : IToolHandler {
                 extraAssemblyPaths,
                 configuredTfm,
                 projectPath,
-                cancellationToken);
+                cancellationToken,
+                visualOptions.Theme,
+                visualOptions.Dpi,
+                visualOptions.ProviderProfile);
         }
         catch (RendererProcessPool.RendererHostException exception) {
             throw new ToolExecutionException(
@@ -79,6 +97,11 @@ internal sealed class RenderFormToolHandler : IToolHandler {
         return ToolJson.Result(new {
             success = true,
             imageBase64 = Convert.ToBase64String(pngBytes),
+            renderProfile = new {
+                theme = visualOptions.Theme,
+                dpi = visualOptions.Dpi,
+                providerProfile = visualOptions.ProviderProfile
+            },
             hint = AuthoringHint
         });
     }

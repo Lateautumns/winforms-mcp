@@ -72,7 +72,10 @@ public sealed class RendererProcessPool : IDisposable {
         string[]? extraAssemblyPaths,
         string targetTfm,
         string? csprojPath = null,
-        CancellationToken cancellationToken = default) {
+        CancellationToken cancellationToken = default,
+        string? theme = null,
+        int? dpi = null,
+        string? providerProfile = null) {
         if (_disposed)
             throw new ObjectDisposedException(nameof(RendererProcessPool));
 
@@ -83,6 +86,9 @@ public sealed class RendererProcessPool : IDisposable {
             designerContent,
             companionContent,
             extraAssemblyPaths,
+            theme,
+            dpi,
+            providerProfile,
             cancellationToken);
     }
 
@@ -298,6 +304,9 @@ public sealed class RendererProcessPool : IDisposable {
             string designerContent,
             string? companionContent,
             string[]? extraAssemblyPaths,
+            string? theme,
+            int? dpi,
+            string? providerProfile,
             CancellationToken cancellationToken) {
             ObjectDisposedException.ThrowIf(_disposed, this);
             await _lock.WaitAsync(cancellationToken);
@@ -322,7 +331,10 @@ public sealed class RendererProcessPool : IDisposable {
                     var request = JsonSerializer.Serialize(new {
                         designerContent,
                         companionContent,
-                        extraAssemblyPaths
+                        extraAssemblyPaths,
+                        theme,
+                        dpi,
+                        providerProfile
                     }, JsonOptions);
 
                     await _stdin!.WriteLineAsync(request.AsMemory(), requestToken);

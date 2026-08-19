@@ -357,6 +357,65 @@ namespace Test {
         Assert.That(pngBytes.Take(4), Is.EqualTo(new byte[] { 0x89, 0x50, 0x4E, 0x47 }));
     }
 
+    [Test]
+    [Category("E2E")]
+    public async Task RenderAsync_VisualOptions_AreForwardedToRendererHost() {
+        var repoRoot = FindRepoRoot(Path.GetDirectoryName(typeof(RendererProcessPool).Assembly.Location)!);
+        var hostBasePath = Path.Combine(
+            repoRoot,
+            "src",
+            "Rhombus.WinFormsMcp.RendererHost",
+            "bin",
+            BuildConfiguration);
+
+        if (!Directory.Exists(Path.Combine(hostBasePath, "net8.0-windows")))
+            Assert.Ignore("RendererHost not built.");
+
+        const string designerContent = @"
+namespace Test {
+    partial class VisualProfileForm {
+        private void InitializeComponent() {
+            this.button = new System.Windows.Forms.Button();
+            this.button.Location = new System.Drawing.Point(10, 10);
+            this.button.Size = new System.Drawing.Size(100, 30);
+            this.button.Text = ""Visual"";
+            this.ClientSize = new System.Drawing.Size(240, 120);
+            this.Controls.Add(this.button);
+        }
+        private System.Windows.Forms.Button button;
+    }
+}";
+
+        using var pool = new RendererProcessPool(CreateCache(), CreateOptions(), hostBasePath);
+        var at96 = await pool.RenderAsync(
+            designerContent,
+            null,
+            null,
+            "net8.0-windows",
+            theme: null,
+            dpi: 96,
+            providerProfile: "StandardWinForms");
+        var at144 = await pool.RenderAsync(
+            designerContent,
+            null,
+            null,
+            "net8.0-windows",
+            theme: null,
+            dpi: 144,
+            providerProfile: "StandardWinForms");
+
+        using var firstStream = new MemoryStream(at96);
+        using var secondStream = new MemoryStream(at144);
+        using var first = new System.Drawing.Bitmap(firstStream);
+        using var second = new System.Drawing.Bitmap(secondStream);
+
+        Assert.Multiple(() => {
+            Assert.That(first.Width, Is.GreaterThan(0));
+            Assert.That(second.Width, Is.GreaterThan(first.Width));
+            Assert.That(second.Height, Is.GreaterThan(first.Height));
+        });
+    }
+
     private static string FindRepoRoot(string startDir) {
         var dir = startDir;
         while (dir != null) {

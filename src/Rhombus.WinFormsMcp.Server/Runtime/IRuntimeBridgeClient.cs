@@ -17,7 +17,8 @@ internal interface IRuntimeBridgeClient {
         string controlId,
         IReadOnlyCollection<string>? sections,
         IReadOnlyCollection<string>? includeProperties,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        ControlSemanticOptions? semanticOptions = null);
 
     Task<IReadOnlyList<ControlAncestorSnapshot>> GetAncestorsAsync(
         int processId,
@@ -28,6 +29,17 @@ internal interface IRuntimeBridgeClient {
         int processId,
         int maxNodes,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Optional bounded provider-item limit. The default preserves the
+    /// original client contract for implementations that do not support
+    /// provider window metadata yet.
+    /// </summary>
+    Task<IReadOnlyList<WindowSnapshot>> GetWindowTreeAsync(
+        int processId,
+        int maxNodes,
+        CancellationToken cancellationToken,
+        int maxItems) => GetWindowTreeAsync(processId, maxNodes, cancellationToken);
 
     Task<IReadOnlyList<ControlBindingSnapshot>> GetBindingsAsync(
         int processId,

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 
 using Rhombus.WinFormsMcp.RuntimeContracts;
 using Rhombus.WinFormsMcp.Server;
+using Rhombus.WinFormsMcp.Server.Automation;
 using Rhombus.WinFormsMcp.Server.Runtime;
 
 namespace Rhombus.WinFormsMcp.Tests.Runtime;
@@ -79,9 +80,12 @@ public sealed class RuntimeInspectionTests {
                 Assert.That(inspection.Summary.Identity.Type, Does.EndWith(".Button"));
                 Assert.That(inspection.Summary.Identity.OwnerType, Does.EndWith(".Form1"));
                 Assert.That(status?.Process?.BridgeVersion, Is.EqualTo("1.5.12-beta"));
+                Assert.That(status?.Capabilities, Does.Contain("providerSemantics"));
                 Assert.That(inspection.Properties.Values["Name"].GetString(), Is.EqualTo("clickButton"));
                 Assert.That(inspection.Properties.Values, Does.ContainKey("AccessibleName"));
                 Assert.That(inspection.Layout.Bounds.Width, Is.EqualTo(100));
+                Assert.That(inspection.Provider, Is.Null);
+                Assert.That(inspection.Semantic, Is.Null);
                 Assert.That(ancestors.Select(item => item.Name), Does.Contain("mainPanel"));
                 Assert.That(ancestors.Select(item => item.Name), Does.Contain("TestForm"));
                 Assert.That(bindings, Has.Some.Matches<ControlBindingSnapshot>(binding =>
@@ -92,6 +96,404 @@ public sealed class RuntimeInspectionTests {
                     binding.DataSourceUpdateMode == "OnPropertyChanged"));
                 Assert.That(shallowTree.Truncated, Is.True);
                 Assert.That(windows.SelectMany(FlattenWindows).Select(window => window.Hwnd), Is.Unique);
+            });
+
+            var semanticInspection = await client.InspectControlAsync(
+                process.Id,
+                button.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None);
+            var semantic = semanticInspection.Semantic;
+
+            Assert.Multiple(() => {
+                Assert.That(semanticInspection.Provider?.ProviderName, Is.EqualTo("StandardWinForms"));
+                Assert.That(semanticInspection.Provider?.SemanticType, Is.EqualTo("button"));
+                Assert.That(semantic, Is.Not.Null);
+                Assert.That(semantic!.ProviderName, Is.EqualTo("StandardWinForms"));
+                Assert.That(semantic.SemanticType, Is.EqualTo("button"));
+                Assert.That(semantic.SupportedInteractionHints, Does.Contain("invoke"));
+                Assert.That(semantic.State["enabled"].GetBoolean(), Is.True);
+            });
+        }
+        finally {
+            if (!process.HasExited) {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+        }
+    }
+
+    [Test]
+    [Timeout(45000)]
+    public async Task AntdUITestAppRuntimeBridge_ReturnsProviderSemanticsAndSupportsUiaAction() {
+        var executable = Path.Combine(TestContext.CurrentContext.TestDirectory, "Rhombus.WinFormsMcp.AntdUI.TestApp.exe");
+        Assert.That(File.Exists(executable), Is.True, $"AntdUI test app was not found at {executable}");
+
+        using var process = Process.Start(new ProcessStartInfo {
+            FileName = executable,
+            UseShellExecute = false
+        }) ?? throw new InvalidOperationException("AntdUI test app could not be started.");
+        using var client = new NamedPipeRuntimeBridgeClient(
+            Options.Create(new McpServerOptions {
+                RuntimeBridgeConnectTimeoutMs = 250,
+                RuntimeBridgeRequestTimeoutMs = 3000
+            }),
+            NullLogger<NamedPipeRuntimeBridgeClient>.Instance);
+
+        try {
+            BridgeStatus? status = null;
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < deadline) {
+                status = await client.GetStatusAsync(process.Id, CancellationToken.None);
+                if (status.Available)
+                    break;
+                await Task.Delay(100);
+            }
+
+            Assert.That(status?.Available, Is.True, status?.Error);
+            Assert.That(status?.Capabilities, Does.Contain("providerSemantics"));
+
+            var tree = await client.GetControlTreeAsync(
+                process.Id,
+                null,
+                maxDepth: 6,
+                maxNodes: 200,
+                CancellationToken.None);
+            var input = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdInput");
+            var inspection = await client.InspectControlAsync(
+                process.Id,
+                input.Summary.Identity.ManagedId,
+                ["identity", "state", "layout", "provider", "semantic"],
+                null,
+                CancellationToken.None);
+            var select = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdSelect");
+            var selectInspection = await client.InspectControlAsync(
+                process.Id,
+                select.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None);
+            var tabs = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdTabs");
+            var tabsInspection = await client.InspectControlAsync(
+                process.Id,
+                tabs.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None);
+            var tabsPagedInspection = await client.InspectControlAsync(
+                process.Id,
+                tabs.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None,
+                new ControlSemanticOptions {
+                    Start = 1,
+                    Count = 1,
+                    MaxNodes = 20
+                });
+            var antTree = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdTree");
+            var treeInspection = await client.InspectControlAsync(
+                process.Id,
+                antTree.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None);
+            var table = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdTable");
+            var tableInspection = await client.InspectControlAsync(
+                process.Id,
+                table.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None);
+            var tablePagedInspection = await client.InspectControlAsync(
+                process.Id,
+                table.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None,
+                new ControlSemanticOptions {
+                    StartRow = 1,
+                    RowCount = 1,
+                    RowScope = "data",
+                    MaxNodes = 80
+                });
+            var tableRenderedInspection = await client.InspectControlAsync(
+                process.Id,
+                table.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None,
+                new ControlSemanticOptions {
+                    RowCount = 2,
+                    RowScope = "rendered",
+                    MaxNodes = 100
+                });
+            var menu = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdMenu");
+            var menuInspection = await client.InspectControlAsync(
+                process.Id,
+                menu.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None);
+
+            Assert.Multiple(() => {
+                Assert.That(tree.Truncated, Is.False);
+                Assert.That(input.Summary.Identity.Type, Is.EqualTo("AntdUI.Input"));
+                Assert.That(inspection.Provider?.ProviderName, Is.EqualTo("AntdUI"));
+                Assert.That(inspection.Provider?.SemanticType, Is.EqualTo("textbox"));
+                Assert.That(inspection.Provider?.RuntimeType, Is.EqualTo("AntdUI.Input"));
+                Assert.That(inspection.Provider?.ProviderVersion, Is.Not.Empty);
+                Assert.That(inspection.State.Text, Is.EqualTo("Initial input"));
+                Assert.That(inspection.Layout.Bounds.Width, Is.GreaterThan(0));
+                Assert.That(inspection.Semantic?.SemanticType, Is.EqualTo("textbox"));
+                Assert.That(inspection.Semantic?.State["text"].GetString(), Is.EqualTo("Initial input"));
+                Assert.That(inspection.Semantic?.Properties["placeholderText"].GetString(), Is.EqualTo("Search devices"));
+                Assert.That(inspection.Semantic?.Properties["prefixText"].GetString(), Is.EqualTo("SN"));
+                Assert.That(inspection.Semantic?.Properties["suffixText"].GetString(), Is.EqualTo("OK"));
+                Assert.That(inspection.Semantic?.Properties["status"].GetString(), Does.Contain("Success"));
+                Assert.That(selectInspection.Provider?.SemanticType, Is.EqualTo("select"));
+                Assert.That(selectInspection.Semantic?.State["selectedIndex"].GetInt32(), Is.EqualTo(1));
+                Assert.That(selectInspection.Semantic?.State["selectedValue"].GetString(), Is.EqualTo("B"));
+                Assert.That(selectInspection.Semantic?.Children, Has.Count.EqualTo(2));
+                Assert.That(tabsInspection.Provider?.SemanticType, Is.EqualTo("tabs"));
+                Assert.That(tabsInspection.Semantic?.Children[1].Text, Is.EqualTo("Devices"));
+                Assert.That(tabsInspection.Semantic?.Children[1].State["selected"].GetBoolean(), Is.True);
+                Assert.That(tabsPagedInspection.Semantic?.Children, Has.Count.EqualTo(1));
+                Assert.That(tabsPagedInspection.Semantic?.Children[0].Index, Is.EqualTo(1));
+                Assert.That(tabsPagedInspection.Semantic?.Truncated, Is.True);
+                Assert.That(treeInspection.Provider?.SemanticType, Is.EqualTo("tree"));
+                Assert.That(treeInspection.Semantic?.Children[0].Text, Is.EqualTo("Devices"));
+                Assert.That(treeInspection.Semantic?.Children[0].Children[0].Text, Is.EqualTo("Router"));
+                Assert.That(treeInspection.Semantic?.Children[0].Children[0].State["selected"].GetBoolean(), Is.True);
+                Assert.That(tableInspection.Provider?.SemanticType, Is.EqualTo("table"));
+                Assert.That(tableInspection.Semantic?.Children.Single(node => node.Kind == "columns").Children, Has.Count.EqualTo(4));
+                Assert.That(tableInspection.Semantic?.Children.Single(node => node.Kind == "rows").Children[0].Children.Single(cell => cell.Name == "DeviceName").Text, Is.EqualTo("Router"));
+                var actionButton = tableInspection.Semantic?.Children
+                    .Single(node => node.Kind == "rows").Children[0].Children
+                    .Single(cell => cell.Name == "Actions").Children.Single(node => node.Kind == "cell-button");
+                Assert.That(actionButton?.Name, Is.EqualTo("open"));
+                Assert.That(tablePagedInspection.Semantic?.Metadata["rowScope"].GetString(), Is.EqualTo("data"));
+                Assert.That(tablePagedInspection.Semantic?.Metadata["startRow"].GetInt32(), Is.EqualTo(1));
+                Assert.That(tablePagedInspection.Semantic?.Children.Single(node => node.Kind == "rows").Children, Has.Count.EqualTo(1));
+                Assert.That(tablePagedInspection.Semantic?.Children.Single(node => node.Kind == "rows").Children[0].Children.Single(cell => cell.Name == "DeviceName").Text, Is.EqualTo("Switch"));
+                Assert.That(tableRenderedInspection.Semantic?.Metadata["requestedRowScope"].GetString(), Is.EqualTo("rendered"));
+                Assert.That(tableRenderedInspection.Semantic?.Metadata, Does.ContainKey("effectiveRowScope"));
+                Assert.That(menuInspection.Provider?.SemanticType, Is.EqualTo("menu"));
+                Assert.That(menuInspection.Semantic?.Children[0].Text, Is.EqualTo("File"));
+                Assert.That(menuInspection.Semantic?.Children[0].Children[1].State["enabled"].GetBoolean(), Is.False);
+            });
+
+            using var automation = new AutomationHelper(logger: NullLogger<AutomationHelper>.Instance);
+            using var session = new SessionManager(automation);
+            var mainWindow = automation.GetMainWindow(process.Id);
+            Assert.That(mainWindow, Is.Not.Null);
+
+            var correlation = new ManagedUiaCorrelationService(session).TryCorrelate(inspection.Summary.Identity);
+            Assert.Multiple(() => {
+                Assert.That(correlation, Is.Not.Null);
+                Assert.That(correlation!.UiaId, Is.Not.Empty);
+                Assert.That(
+                    correlation.Method,
+                    Is.AnyOf("automationId", "nativeWindowHandle", "nativeWindowHandleTraversal"));
+                Assert.That(correlation.Confidence, Is.GreaterThanOrEqualTo(0.85d));
+            });
+
+            var uiaElement = session.GetElement(correlation!.UiaId!);
+            Assert.That(uiaElement, Is.Not.Null);
+            automation.Click(uiaElement!);
+            automation.TypeText(uiaElement!, "Typed via UIA", clearFirst: true);
+
+            var typedInspection = await WaitForRuntimeTextAsync(
+                client,
+                process.Id,
+                input.Summary.Identity.ManagedId,
+                "Typed via UIA");
+
+            Assert.That(typedInspection.State.Text, Is.EqualTo("Typed via UIA"));
+        }
+        finally {
+            if (!process.HasExited) {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+        }
+    }
+
+    [Test]
+    [Timeout(45000)]
+    public async Task AntdUISelectDropdown_WindowTreeReturnsLayeredMetadataAndBoundedItems() {
+        var executable = Path.Combine(TestContext.CurrentContext.TestDirectory, "Rhombus.WinFormsMcp.AntdUI.TestApp.exe");
+        Assert.That(File.Exists(executable), Is.True, $"AntdUI test app was not found at {executable}");
+
+        var startInfo = new ProcessStartInfo {
+            FileName = executable,
+            UseShellExecute = false
+        };
+        startInfo.EnvironmentVariables["WINFORMS_MCP_OPEN_ANTDUI_POPUP"] = "1";
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("AntdUI test app could not be started.");
+        using var client = new NamedPipeRuntimeBridgeClient(
+            Options.Create(new McpServerOptions {
+                RuntimeBridgeConnectTimeoutMs = 250,
+                RuntimeBridgeRequestTimeoutMs = 3000
+            }),
+            NullLogger<NamedPipeRuntimeBridgeClient>.Instance);
+
+        try {
+            BridgeStatus? status = null;
+            var statusDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < statusDeadline) {
+                status = await client.GetStatusAsync(process.Id, CancellationToken.None);
+                if (status.Available)
+                    break;
+                await Task.Delay(100);
+            }
+
+            Assert.That(status?.Available, Is.True, status?.Error);
+            var tree = await client.GetControlTreeAsync(
+                process.Id,
+                null,
+                maxDepth: 6,
+                maxNodes: 400,
+                CancellationToken.None);
+            var select = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdSelect");
+
+            IReadOnlyList<WindowSnapshot> windows = [];
+            WindowSnapshot? dropdown = null;
+            var windowDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < windowDeadline) {
+                windows = await client.GetWindowTreeAsync(
+                    process.Id,
+                    maxNodes: 400,
+                    CancellationToken.None,
+                    maxItems: 10);
+                dropdown = windows
+                    .SelectMany(FlattenWindows)
+                    .FirstOrDefault(window =>
+                        window.ProviderWindowMetadata?.SemanticType == "select-dropdown");
+                if (dropdown is not null)
+                    break;
+                await Task.Delay(100);
+            }
+
+            var metadata = dropdown?.ProviderWindowMetadata;
+            Assert.Multiple(() => {
+                Assert.That(dropdown, Is.Not.Null);
+                Assert.That(dropdown?.Kind, Is.EqualTo("Popup"));
+                Assert.That(metadata?.Provider, Is.EqualTo("AntdUI"));
+                Assert.That(metadata?.RuntimeWindowType, Does.Contain("LayeredFormSelectDown"));
+                Assert.That(metadata?.OwnerControlId, Is.EqualTo(select.Summary.Identity.ManagedId));
+                Assert.That(metadata?.OwnerControlPath, Does.EndWith("/antdSelect"));
+                Assert.That(metadata?.Hwnd, Is.EqualTo(dropdown?.Hwnd));
+                Assert.That(metadata?.Dpi, Is.GreaterThan(0));
+                Assert.That(metadata?.Items.Select(item => item.Text), Does.Contain("Alpha"));
+                Assert.That(metadata?.Items.Select(item => item.Text), Does.Contain("Beta"));
+                Assert.That(metadata?.SelectedItem?.Text, Is.EqualTo("Beta"));
+                Assert.That(metadata?.VisibleRange, Is.Not.Null);
+            });
+
+            var limitedWindows = await client.GetWindowTreeAsync(
+                process.Id,
+                maxNodes: 400,
+                CancellationToken.None,
+                maxItems: 1);
+            var limitedMetadata = limitedWindows
+                .SelectMany(FlattenWindows)
+                .First(window => window.ProviderWindowMetadata?.SemanticType == "select-dropdown")
+                .ProviderWindowMetadata!;
+            Assert.Multiple(() => {
+                Assert.That(limitedMetadata.Items, Has.Count.EqualTo(1));
+                Assert.That(limitedMetadata.Truncated, Is.True);
+            });
+        }
+        finally {
+            if (!process.HasExited) {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+        }
+    }
+
+    [TestCase("menu", "menu-popup", "antdMenu")]
+    [TestCase("tooltip", "tooltip", "antdSelect")]
+    [TestCase("message", "message", "AntdUiInspectionForm")]
+    [TestCase("drawer", "drawer", "AntdUiInspectionForm")]
+    [Timeout(45000)]
+    public async Task AntdUILayeredSurface_WindowTreeCorrelatesOwner(
+        string fixture,
+        string semanticType,
+        string ownerName) {
+        var executable = Path.Combine(TestContext.CurrentContext.TestDirectory, "Rhombus.WinFormsMcp.AntdUI.TestApp.exe");
+        Assert.That(File.Exists(executable), Is.True, $"AntdUI test app was not found at {executable}");
+
+        var startInfo = new ProcessStartInfo {
+            FileName = executable,
+            UseShellExecute = false
+        };
+        startInfo.EnvironmentVariables["WINFORMS_MCP_OPEN_ANTDUI_POPUP"] = fixture;
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("AntdUI test app could not be started.");
+        using var client = new NamedPipeRuntimeBridgeClient(
+            Options.Create(new McpServerOptions {
+                RuntimeBridgeConnectTimeoutMs = 250,
+                RuntimeBridgeRequestTimeoutMs = 3000
+            }),
+            NullLogger<NamedPipeRuntimeBridgeClient>.Instance);
+
+        try {
+            BridgeStatus? status = null;
+            var statusDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < statusDeadline) {
+                status = await client.GetStatusAsync(process.Id, CancellationToken.None);
+                if (status.Available)
+                    break;
+                await Task.Delay(100);
+            }
+
+            Assert.That(status?.Available, Is.True, status?.Error);
+            var tree = await client.GetControlTreeAsync(
+                process.Id,
+                null,
+                maxDepth: 6,
+                maxNodes: 400,
+                CancellationToken.None);
+            var owner = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == ownerName);
+
+            WindowSnapshot? surface = null;
+            var windowDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < windowDeadline) {
+                var windows = await client.GetWindowTreeAsync(
+                    process.Id,
+                    maxNodes: 400,
+                    CancellationToken.None,
+                    maxItems: 20);
+                surface = windows
+                    .SelectMany(FlattenWindows)
+                    .FirstOrDefault(window => window.ProviderWindowMetadata?.SemanticType == semanticType);
+                if (surface is not null)
+                    break;
+                await Task.Delay(100);
+            }
+
+            var metadata = surface?.ProviderWindowMetadata;
+            Assert.Multiple(() => {
+                Assert.That(surface, Is.Not.Null, $"The {fixture} fixture did not expose a managed layered window.");
+                Assert.That(metadata?.Provider, Is.EqualTo("AntdUI"));
+                Assert.That(metadata?.SemanticType, Is.EqualTo(semanticType));
+                Assert.That(metadata?.OwnerControlId, Is.EqualTo(owner.Summary.Identity.ManagedId));
+                Assert.That(metadata?.OwnerControlName, Is.EqualTo(ownerName));
+                Assert.That(metadata?.Hwnd, Is.EqualTo(surface?.Hwnd));
+                Assert.That(metadata?.Bounds.Width, Is.GreaterThan(0));
+                Assert.That(metadata?.Visible, Is.True);
             });
         }
         finally {
@@ -191,5 +593,27 @@ public sealed class RuntimeInspectionTests {
         yield return window;
         foreach (var child in window.Children.SelectMany(FlattenWindows))
             yield return child;
+    }
+
+    private static async Task<ControlInspectionSnapshot> WaitForRuntimeTextAsync(
+        NamedPipeRuntimeBridgeClient client,
+        int processId,
+        string controlId,
+        string expectedText) {
+        ControlInspectionSnapshot? last = null;
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline) {
+            last = await client.InspectControlAsync(
+                processId,
+                controlId,
+                ["state", "semantic"],
+                null,
+                CancellationToken.None);
+            if (string.Equals(last.State.Text, expectedText, StringComparison.Ordinal))
+                return last;
+            await Task.Delay(100);
+        }
+
+        return last ?? throw new InvalidOperationException("RuntimeBridge did not return a control inspection.");
     }
 }

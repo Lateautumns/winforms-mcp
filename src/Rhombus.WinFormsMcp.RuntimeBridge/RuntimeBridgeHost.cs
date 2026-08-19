@@ -215,7 +215,8 @@ public sealed class RuntimeBridgeHost : IDisposable {
                         request.Pid,
                         RequireString(request.Arguments, "controlId"),
                         GetStringArray(request.Arguments, "sections"),
-                        GetStringArray(request.Arguments, "includeProperties")),
+                        GetStringArray(request.Arguments, "includeProperties"),
+                        GetSemanticOptions(request.Arguments)),
                     cancellationToken).ConfigureAwait(false),
                 RuntimeBridgeProtocol.GetAncestors => await _dispatcher.InvokeAsync(
                     () => _inspector.GetAncestors(
@@ -225,7 +226,8 @@ public sealed class RuntimeBridgeHost : IDisposable {
                 RuntimeBridgeProtocol.GetWindowTree => await _dispatcher.InvokeAsync(
                     () => _inspector.GetWindowTree(
                         request.Pid,
-                        GetInt(request.Arguments, "maxNodes", 200)),
+                        GetInt(request.Arguments, "maxNodes", 200),
+                        GetInt(request.Arguments, "maxItems", 100)),
                     cancellationToken).ConfigureAwait(false),
                 RuntimeBridgeProtocol.GetBindings => await _dispatcher.InvokeAsync(
                     () => _inspector.GetBindings(
@@ -354,6 +356,43 @@ public sealed class RuntimeBridgeHost : IDisposable {
         value.TryGetInt32(out var result)
             ? result
             : defaultValue;
+
+    private static ControlSemanticOptions? GetSemanticOptions(JsonElement arguments) {
+        if (arguments.ValueKind != JsonValueKind.Object)
+            return null;
+
+        var source = arguments;
+        if (arguments.TryGetProperty("semanticOptions", out var nested) && nested.ValueKind == JsonValueKind.Object)
+            source = nested;
+
+        var options = new ControlSemanticOptions {
+            MaxDepth = GetNullableInt(source, "maxDepth"),
+            MaxNodes = GetNullableInt(source, "maxNodes"),
+            Start = GetNullableInt(source, "start"),
+            Count = GetNullableInt(source, "count"),
+            StartRow = GetNullableInt(source, "startRow"),
+            RowCount = GetNullableInt(source, "rowCount"),
+            RowScope = GetString(source, "rowScope")
+        };
+
+        return options.MaxDepth.HasValue ||
+            options.MaxNodes.HasValue ||
+            options.Start.HasValue ||
+            options.Count.HasValue ||
+            options.StartRow.HasValue ||
+            options.RowCount.HasValue ||
+            options.RowScope is not null
+            ? options
+            : null;
+    }
+
+    private static int? GetNullableInt(JsonElement arguments, string name) =>
+        arguments.ValueKind == JsonValueKind.Object &&
+        arguments.TryGetProperty(name, out var value) &&
+        value.ValueKind == JsonValueKind.Number &&
+        value.TryGetInt32(out var result)
+            ? result
+            : null;
 
     private static string[]? GetStringArray(JsonElement arguments, string name) {
         if (arguments.ValueKind != JsonValueKind.Object ||

@@ -2,62 +2,196 @@
 
 ## Stage
 
-Stage 0 - PR #1 RuntimeBridge lifecycle final hardening.
+Stage 7 - Rendering / Theme / DPI complete; local and Windows Core CI green.
 
 ## Implemented
 
-- Replaced the managed control identity forward map with a weak-key table so registered controls are not kept alive by the registry.
-- Added cleanup behavior coverage for disposed and garbage-collected controls.
-- Added graceful RuntimeBridgeHost stop/dispose behavior that cancels the listener, closes the active pipe, waits for listener/request completion, and releases the shutdown token source last.
-- Added repeatable static bridge stop/restart coverage through McpRuntimeBridge.
+- Completed PR #1 Stage 0 RuntimeBridge lifecycle hardening on feature/v11-foundation-refactor.
+- Confirmed PR #1 Core CI green on commit bd19b0ea49a50441d6dbb8f7c75fba61f3d3f652.
+- Created stacked development branch feature/v14-antdui-provider from feature/v11-foundation-refactor.
+- Confirmed AntdUI reference repository exists at D:\06_开源工具重写\AntdUIAntdUI.
+- Completed Stage 2 AntdUI source reconnaissance documents:
+  - docs/antdui/AntdUI-Architecture-Analysis.md.
+  - docs/antdui/AntdUI-Provider-Mapping.md.
+  - docs/antdui/AntdUI-LayeredWindow-Analysis.md.
+- Added RuntimeBridge control provider architecture:
+  - IControlProvider.
+  - IControlProviderRegistry.
+  - ControlProviderRegistry with priority-based resolution.
+  - StandardWinFormsProvider fallback.
+- Added optional RuntimeContracts provider and semantic snapshots.
+- Added reflection-based AntdUIProvider for basic AntdUI controls:
+  - Button.
+  - Input.
+  - InputNumber.
+  - Checkbox.
+  - Radio.
+  - Switch.
+  - Select.
+- Added Rhombus.WinFormsMcp.AntdUI.TestApp for real RuntimeBridge E2E coverage.
+- Added AntdUI provider unit tests and AntdUI RuntimeBridge integration tests.
+- Added bounded semantic inspection for AntdUI Tabs, Tree, Table, and Menu through the existing inspect_control protocol.
+- Added semantic paging controls for top-level collections and table rows (start/count/startRow/rowCount/rowScope) with truncation metadata.
+- Added AntdUI Table columns, data/visible/rendered row scopes, sort/filter metadata, cell values, and CellButton snapshots.
+- Added complex semantic tree fixtures and end-to-end coverage to the AntdUI TestApp.
+- Added read-only provider window metadata for AntdUI layered forms:
+  - Select dropdown.
+  - Menu popup.
+  - Tooltip.
+  - Modal-compatible layered surfaces.
+  - Drawer.
+  - Message and notification-compatible layered surfaces.
+- Added bounded popup item snapshots, selected/highlighted state, visible range,
+  content/target bounds, DPI, owner managed identity/path, and per-window warnings.
+- Extended the existing `winforms_get_window_tree` request with optional `maxItems`;
+  no new MCP tool was added.
+- Added real AntdUI layered-window E2E coverage for Select, Menu, Tooltip, Message,
+  and Drawer owner correlation and bounded metadata.
+- Hardened UIA correlation fallback for managed controls using automation id, native HWND lookup, bounded HWND traversal, and process matching.
+- Hardened UI text input fallback for controls without a writable ValuePattern by trying writable child value patterns, STA clipboard paste, and paced SendKeys fallback.
+- Extended the existing `winforms_render_form` tool with optional `theme`, `dpi`, and `providerProfile` fields; tool count remains 40.
+- Added request-scoped AntdUI theme/DPI reflection support using the verified `AntdUI.Config.Mode` and `Config.SetDpi(float?)` APIs.
+- Restored AntdUI global theme/DPI state after both successful and failed renders, including nested UserControl rendering.
+- Added render cache isolation for theme, DPI, provider profile, TFM, and referenced assembly fingerprints.
+- Applied bounded logical DPI scaling to the DesignSurface tree for standard WinForms and AntdUI previews.
+- Added Stage 7 visual matrix/state restoration tests for AntdUI Button, Input, Tabs, Tree, and Table fixtures at Light/Dark 96/120/144/192 DPI.
+- Hardened UIA text input for owner-drawn/composite controls without ValuePattern by using bounded, timeout-protected HWND key/character messages before foreground keyboard fallback; existing AntdUI action E2E now passes reliably.
 
 ## Architecture
 
 - RuntimeBridge remains read-only inspection infrastructure.
-- No AntdUI provider work has started.
-- No MCP tools were added, removed, or renamed.
+- RuntimeBridge core, RuntimeContracts, and Server core still have no AntdUI compile-time dependency.
+- AntdUI compile-time dependency is limited to Rhombus.WinFormsMcp.AntdUI.TestApp.
+- AntdUIProvider uses controlled reflection over allowlisted public properties with per-property error isolation.
+- Provider matching remains centralized in ControlProviderRegistry.
+- StandardWinFormsProvider remains the fallback for common WinForms controls and unknown third-party controls.
+- Protocol remains RuntimeBridge Protocol v1; semantic data is added through optional fields.
+- Window snapshots preserve all existing fields and add optional `providerWindowMetadata`.
+- AntdUI layered-window discovery is based on type identity plus a controlled
+  reflection allow-list; it never invokes arbitrary methods or mutates popup state.
+- Provider/semantic snapshots are built on the WinForms UI thread through the existing RuntimeBridge inspector path.
+- Managed RuntimeBridge remains the understanding layer; UIA remains the action layer.
+- Semantic reads remain bounded by RuntimeBridge clamps and provider-level collection/row limits; non-indexed offsets fail closed with explicit metadata.
+- Rendering remains isolated in RendererHost; no AntdUI compile-time reference was added to Rendering, Server, RuntimeBridge, or RuntimeContracts.
 
 ## MCP Changes
 
 - Added: none.
-- Changed: none.
-- Unchanged: existing 40 MCP tools and current Runtime Inspection tool surface.
+- Changed: `winforms_render_form` only by adding optional `theme`, `dpi`, and `providerProfile` parameters; no required parameter changed.
+- Extended: winforms_inspect_control can return AntdUI provider and semantic data through the existing optional provider/semantic sections.
+- Unchanged: existing MCP tool count remains 40; no AntdUI-specific MCP tools were added.
 
 ## Build
 
-- Local format verify: passed.
-- Local restore: passed.
-- Local Release solution build: passed with 0 warnings and 0 errors.
-- Local RendererHost multi-target Release build: passed with 0 warnings and 0 errors.
-- Note: local validation used a temporary SDK roll-forward change because this machine does not expose the repository's .NET 8 SDK; global.json was restored before commit.
+- Stage 4 local Gate passed.
+- Format: passed.
+- Format verify: passed.
+- Restore: passed.
+- Release solution build: 0 warnings, 0 errors.
+- RendererHost multi-target Release build: 0 warnings, 0 errors.
 
 ## Tests
 
-- Local full test run: 278 passed, 44 skipped, 0 failed, 322 total.
-- New lifecycle-focused tests: 13 passed.
+- Full local test run: 369 total, 325 passed, 44 skipped, 0 failed (elevated desktop session).
+- New coverage:
+  - AntdUI provider detection and fallback behavior.
+  - AntdUI Button, Input, InputNumber, Checkbox, Radio, Switch, and Select semantics.
+  - Select item semantic children with bounded maxNodes truncation.
+  - AntdUI RuntimeBridge E2E through the test app.
+  - Managed/UIA correlation fallback for AntdUI controls.
+  - UIA text input fallback for controls without direct writable ValuePattern.
+  - AntdUI Tabs page selection and bounded paging.
+  - AntdUI Tree/Menu hierarchy, selection/state, depth limits, and paging.
+  - AntdUI Table columns, row scopes, sorting/filter metadata, row paging, and CellButton semantics.
+  - RuntimeBridge semantic-option transport, including null-safe JSON handling.
+  - Existing MCP tool surface unchanged at 40 tools.
+  - LayeredWindow metadata contract serialization and semantic classification.
+  - Select dropdown item bounds/selection/truncation and owner managed ID.
+  - Menu popup, Tooltip, Message, and Drawer HWND/owner correlation.
+  - Render visual option normalization, cache isolation, standard WinForms DPI scaling.
+  - AntdUI Light/Dark rendering matrix at 96/120/144/192 DPI and global-state restoration on success/failure.
 
 ## CI
 
-- Core CI: green on PR and push runs for commit 15c711397910f50c640075c10a12a5116bce6b0f.
-- External CI: Claude Code Review failed because the Claude Code GitHub App is not installed on the fork; this is external service setup, not a Core CI failure.
+- PR #1 Core CI: green.
+- PR #1 External CI: Claude Code Review fails because the Claude Code GitHub App is not installed on the fork.
+- PR #2 Core CI before Stage 4 commit: green on commit 8d66583 feat: add control provider architecture.
+- PR #2 Core CI for Stage 4 commit: green on commit b7ac9f2 feat: add AntdUI basic control inspection.
+- PR #2 External CI: Claude Code Review fails for the same missing GitHub App setup.
+- Stage 4 commit CI: green.
+- Stage 5 Core CI: green for commit 700adc8 (push run 32213525287 and PR run 32213528776).
+- Stage 6 Core CI: green for commit cbc300f (push run 32216808052 and PR run 32216813261).
+- Stage 6 external Claude Code Review: failed because the Claude Code GitHub App is not installed on the fork; no code changes were made for this external-service failure.
+- Stage 7 Core CI: green for commit f3bf321 (push run 32221982955 and PR run 32221986299).
+- Stage 7 external Claude Code Review: failed with 401 because the Claude Code GitHub App is not installed on this fork; no code changes were made for this external-service failure.
 
 ## Git
 
-- Branch: feature/v11-foundation-refactor.
-- Commit: 15c711397910f50c640075c10a12a5116bce6b0f (fix: harden runtime bridge lifecycle).
-- PR: #1, Draft, Lateautumns/winforms-mcp.
-- Working Tree: clean after Stage 0 commit/push.
+- Base Branch: feature/v11-foundation-refactor.
+- Current Branch: feature/v14-antdui-provider.
+- Stage 7 Commit: f3bf321 `feat: support render theme and dpi profiles`.
+- Current Head: f3bf321 `feat: support render theme and dpi profiles`.
+- Stage 4 Commit: b7ac9f2 feat: add AntdUI basic control inspection.
+- Stage 5 Commit: 700adc8 feat: add AntdUI complex semantic inspection.
+- Stage 6 Commit: cbc300f `feat: support AntdUI layered windows`.
+- Draft PR: #2, target feature/v11-foundation-refactor.
+- Working Tree: clean after Stage 7 commit and CI status update pending.
 
 ## Risks
 
-- Local SDK differs from CI SDK; Windows CI remains the authoritative .NET 8 verification.
-- Stage 0 deliberately avoids AntdUI and new MCP tools.
+- AntdUI repository currently contains untracked .codegraph directories; treat them as local analysis artifacts and never commit them.
+- AntdUIProvider intentionally reads only allowlisted public properties and bounded item summaries.
+- Provider implementations must continue avoiding arbitrary runtime execution, setters, or method invocation.
+- Future AntdUI semantic support for Tabs, Tree, Table, and Menu should stay within the existing provider/semantic architecture and avoid new AntdUI-specific MCP tools unless compatibility requires it.
+- Table internals use a narrow allowlist of AntdUI members and return per-scope fallback/diagnostic metadata when version-sensitive caches are unavailable.
+- Layered forms are transient and may disappear during enumeration; the inspector
+  returns bounded metadata and warnings and tolerates disposal races.
+- Local SDK: repository-requested .NET 8.0.424 is installed and `global.json` remains unchanged.
 
 ## Next
 
-- PR #1 is ready for human review after Core CI green.
-- Proceed to Stage 1 stacked branch setup from feature/v11-foundation-refactor.
+- Stage 7 local and Windows Core CI are green after the AntdUI owner-drawn input regression fix; continue to Stage 8 Diagnostics on a stacked feature branch.
 
 ## Hard Blocker
 
 None.
+
+## Stage 6 Gate Evidence
+
+- `dotnet format Rhombus.WinFormsMcp.sln --verbosity quiet`: passed.
+- `dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes --verbosity quiet`: passed.
+- `dotnet restore Rhombus.WinFormsMcp.sln`: passed.
+- `dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false`: passed with 0 warnings and 0 errors.
+- `dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false`: passed for net48, netcoreapp3.1, and net8.0-windows with 0 warnings and 0 errors.
+- Focused LayeredWindow and popup E2E tests: 18 passed.
+- Full elevated desktop test run: 348 total, 304 passed, 44 skipped, 0 failed.
+- Non-elevated full test run: one existing FlaUI `SendInput` access-denied failure; elevated rerun passed.
+
+## Stage 5 Gate Evidence
+
+- dotnet format Rhombus.WinFormsMcp.sln --verbosity quiet: passed.
+- dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes --verbosity quiet: passed.
+- dotnet restore Rhombus.WinFormsMcp.sln: passed.
+- dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false: passed with 0 warnings and 0 errors.
+- dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false: passed with 0 warnings and 0 errors.
+- dotnet test Rhombus.WinFormsMcp.sln --configuration Release --no-build: 334 total, 290 passed, 44 skipped, 0 failed.
+- GitHub PR #2 Stage 4 CI run 32188783782: passed, build-test-coverage green on Windows.
+- GitHub PR #2 Stage 5 push run 32213525287: passed, CI green on Windows.
+- GitHub PR #2 Stage 5 synchronize run 32213528776: passed, CI green on Windows.
+- GitHub PR #2 Stage 5 status push run 32213834322: passed, CI green on Windows.
+- GitHub PR #2 Stage 5 status synchronize run 32213836905: passed, CI green on Windows.
+- Focused AntdUIProviderTests: 7 passed.
+- Focused RuntimeBridgeLifecycleTests: 14 passed.
+- Focused RuntimeInspectionTests: 4 passed.
+- One non-elevated desktop E2E attempt was denied by Windows SendInput access; the same E2E and the full Release run passed in the elevated test session. This is an environment permission note, not a product test failure.
+
+## Stage 7 Gate Evidence
+
+- `dotnet format Rhombus.WinFormsMcp.sln --verbosity quiet`: passed.
+- `dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes --verbosity quiet`: passed.
+- `dotnet restore Rhombus.WinFormsMcp.sln`: passed.
+- `dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false`: passed with 0 warnings and 0 errors.
+- `dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false`: passed for net48, netcoreapp3.1, and net8.0-windows with 0 warnings and 0 errors.
+- Focused Stage 7 RuntimeBridge, AntdUI provider, rendering, and renderer-pool tests: 33 passed.
+- Full elevated Release test run: 369 total, 325 passed, 44 skipped, 0 failed.
+- The existing AntdUI owner-drawn Input UIA action now passes using a bounded HWND WM_KEY/WM_CHAR fallback when ValuePattern is unavailable.

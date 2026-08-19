@@ -31,6 +31,7 @@ public class DesignSurfaceFormRenderer {
     private static bool _visualStylesInitialized;
     private readonly Dictionary<string, byte[]> _cache = [];
     private readonly Dictionary<string, Type?> _typeCache = [];
+    private readonly object _renderLock = new();
 
     // Per-render state
     private Dictionary<string, IComponent> _components = [];
@@ -38,6 +39,7 @@ public class DesignSurfaceFormRenderer {
 
     private IDesignerHost? _host;
     private List<Assembly> _extraAssemblies = [];
+    private RenderVisualOptions _currentRenderOptions = RenderVisualOptions.Normalize(null, null, null);
 
     // Recursive rendering: project directory for searching .Designer.cs files
     private string? _projectDir;
@@ -64,7 +66,11 @@ public class DesignSurfaceFormRenderer {
     /// Reads the companion .cs file (if present) to detect Form vs UserControl.
     /// Scans the project bin/ directory for custom control assemblies.
     /// </summary>
-    public byte[] RenderForm(string sourceFilePath) {
+    public byte[] RenderForm(
+        string sourceFilePath,
+        string? theme = null,
+        int? dpi = null,
+        string? providerProfile = null) {
         var designerFile = FormRenderingHelpers.ResolveDesignerFile(sourceFilePath);
         var designerContent = File.ReadAllText(designerFile);
 
@@ -79,104 +85,134 @@ public class DesignSurfaceFormRenderer {
         var projectDir = Path.GetDirectoryName(designerFile)!;
         var extraPaths = ResolveProjectAssemblyPaths(projectDir);
 
-        return RenderDesignerCode(designerContent, companionContent, extraPaths, projectDir);
+        return RenderDesignerCode(
+            designerContent,
+            companionContent,
+            extraPaths,
+            projectDir,
+            theme,
+            dpi,
+            providerProfile);
     }
 
     /// <summary>
     /// Render designer code from a string, with optional companion content and extra assemblies.
     /// </summary>
-    public byte[] RenderDesignerCode(string designerContent, string? companionContent = null,
-        IEnumerable<string>? extraAssemblyPaths = null, string? projectDir = null) {
+    public byte[] RenderDesignerCode(
+        string designerContent,
+        string? companionContent = null,
+        IEnumerable<string>? extraAssemblyPaths = null,
+        string? projectDir = null,
+        string? theme = null,
+        int? dpi = null,
+        string? providerProfile = null) {
+        var options = RenderVisualOptions.Normalize(theme, dpi, providerProfile);
         var extraPaths = extraAssemblyPaths?.ToArray() ?? [];
-        var cacheKey = BuildCacheKey(designerContent, companionContent, extraPaths);
-        if (_cache.TryGetValue(cacheKey, out var cached))
-            return cached;
 
-        EnsureVisualStyles();
+        lock (_renderLock) {
+            var cacheKey = BuildCacheKey(designerContent, companionContent, extraPaths, options);
+            if (_cache.TryGetValue(cacheKey, out var cached))
+                return cached;
 
-        // Store project directory for recursive UserControl rendering
-        _projectDir = projectDir;
+            EnsureVisualStyles();
 
-        // Load extra assemblies into runtime
-        _extraAssemblies = [];
-        _typeCache.Clear();
-        if (extraPaths.Length > 0) {
-            foreach (var path in extraPaths) {
-                if (!File.Exists(path))
-                    continue;
-                try {
-                    _extraAssemblies.Add(Assembly.LoadFrom(path));
-                }
-                catch { /* skip unloadable DLLs */ }
-            }
-        }
+            // Store project directory for recursive UserControl rendering
+            _projectDir = projectDir;
+            _currentRenderOptions = options;
 
-        // Detect base type from companion file
-        var baseType = DetectBaseType(designerContent, companionContent);
-
-        // Parse InitializeComponent
-        var tree = CSharpSyntaxTree.ParseText(designerContent);
-        var syntaxErrors = tree.GetDiagnostics()
-            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
-            .Take(10)
-            .Select(diagnostic => diagnostic.ToString())
-            .ToArray();
-        if (syntaxErrors.Length > 0) {
-            throw FormRenderErrors.Create(
-                "designer_parse_failed",
-                $"Designer code contains syntax errors: {string.Join("; ", syntaxErrors)}");
-        }
-        var root = tree.GetCompilationUnitRoot();
-        var initMethod = root.DescendantNodes()
-            .OfType<MethodDeclarationSyntax>()
-            .FirstOrDefault(m => m.Identifier.Text == "InitializeComponent");
-
-        if (initMethod?.Body == null) {
-            throw FormRenderErrors.Create(
-                "designer_parse_failed",
-                "InitializeComponent() method not found in designer code.");
-        }
-
-        // Run DesignSurface operations on STA thread
-        byte[]? pngBytes = null;
-        Exception? threadException = null;
-
-        var thread = new Thread(() => {
             try {
-                pngBytes = RenderOnStaThread(baseType, initMethod.Body.Statements);
+                // Load extra assemblies into runtime
+                _extraAssemblies = [];
+                _typeCache.Clear();
+                if (extraPaths.Length > 0) {
+                    foreach (var path in extraPaths) {
+                        if (!File.Exists(path))
+                            continue;
+                        try {
+                            _extraAssemblies.Add(Assembly.LoadFrom(path));
+                        }
+                        catch { /* skip unloadable DLLs */ }
+                    }
+                }
+
+                using var visualState = AntdUiRenderScope.Enter(options, _extraAssemblies);
+
+                // Detect base type from companion file
+                var baseType = DetectBaseType(designerContent, companionContent);
+
+                // Parse InitializeComponent
+                var tree = CSharpSyntaxTree.ParseText(designerContent);
+                var syntaxErrors = tree.GetDiagnostics()
+                    .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+                    .Take(10)
+                    .Select(diagnostic => diagnostic.ToString())
+                    .ToArray();
+                if (syntaxErrors.Length > 0) {
+                    throw FormRenderErrors.Create(
+                        "designer_parse_failed",
+                        $"Designer code contains syntax errors: {string.Join("; ", syntaxErrors)}");
+                }
+                var root = tree.GetCompilationUnitRoot();
+                var initMethod = root.DescendantNodes()
+                    .OfType<MethodDeclarationSyntax>()
+                    .FirstOrDefault(m => m.Identifier.Text == "InitializeComponent");
+
+                if (initMethod?.Body == null) {
+                    throw FormRenderErrors.Create(
+                        "designer_parse_failed",
+                        "InitializeComponent() method not found in designer code.");
+                }
+
+                // Run DesignSurface operations on STA thread
+                byte[]? pngBytes = null;
+                Exception? threadException = null;
+
+                var thread = new Thread(() => {
+                    try {
+                        pngBytes = RenderOnStaThread(baseType, initMethod.Body.Statements, options);
+                    }
+                    catch (Exception ex) {
+                        threadException = ex;
+                    }
+                });
+                thread.SetApartmentState(ApartmentState.STA);
+                thread.Start();
+                if (!thread.Join(timeout: TimeSpan.FromMilliseconds(10000))) {
+                    throw FormRenderErrors.Create(
+                        "renderer_timeout",
+                        "DesignSurface rendering did not finish within 10000ms.");
+                }
+
+                if (threadException != null)
+                    throw FormRenderErrors.Create(
+                        "control_load_failed",
+                        $"DesignSurface/control loading failed: {threadException.Message}",
+                        threadException);
+
+                if (pngBytes == null)
+                    throw FormRenderErrors.Create(
+                        "render_failed",
+                        "DesignSurface render failed: no output produced.");
+
+                _cache[cacheKey] = pngBytes;
+                return pngBytes;
             }
-            catch (Exception ex) {
-                threadException = ex;
+            finally {
+                _currentRenderOptions = RenderVisualOptions.Normalize(null, null, null);
             }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        if (!thread.Join(timeout: TimeSpan.FromMilliseconds(10000))) {
-            throw FormRenderErrors.Create(
-                "renderer_timeout",
-                "DesignSurface rendering did not finish within 10000ms.");
         }
-
-        if (threadException != null)
-            throw FormRenderErrors.Create(
-                "control_load_failed",
-                $"DesignSurface/control loading failed: {threadException.Message}",
-                threadException);
-
-        if (pngBytes == null)
-            throw FormRenderErrors.Create(
-                "render_failed",
-                "DesignSurface render failed: no output produced.");
-
-        _cache[cacheKey] = pngBytes;
-        return pngBytes;
     }
 
     /// <summary>
     /// Render a .Designer.cs file to PNG. Backward-compatible signature for the render_form tool.
     /// </summary>
-    public byte[] RenderDesignerFile(string designerFilePath, string? outputPath = null) {
-        var pngBytes = RenderForm(designerFilePath);
+    public byte[] RenderDesignerFile(
+        string designerFilePath,
+        string? outputPath = null,
+        string? theme = null,
+        int? dpi = null,
+        string? providerProfile = null) {
+        var pngBytes = RenderForm(designerFilePath, theme, dpi, providerProfile);
 
         if (!string.IsNullOrEmpty(outputPath)) {
             var dir = Path.GetDirectoryName(outputPath);
@@ -188,7 +224,10 @@ public class DesignSurfaceFormRenderer {
         return pngBytes;
     }
 
-    private byte[] RenderOnStaThread(Type baseType, SyntaxList<StatementSyntax> statements) {
+    private byte[] RenderOnStaThread(
+        Type baseType,
+        SyntaxList<StatementSyntax> statements,
+        RenderVisualOptions options) {
         using var surface = new DesignSurface();
         surface.BeginLoad(baseType);
 
@@ -213,6 +252,12 @@ public class DesignSurfaceFormRenderer {
                 // Graceful degradation: skip statements that can't be executed
             }
         }
+
+        // A requested DPI represents the logical design scale. AntdUI also
+        // receives the same DPI through Config.SetDpi; scaling the control
+        // tree here keeps standard WinForms bounds and mixed forms aligned.
+        if (options.ScaleFactor != 1F)
+            _rootControl.Scale(new SizeF(options.ScaleFactor, options.ScaleFactor));
 
         // Render
         var view = (Control)surface.View;
@@ -1093,7 +1138,14 @@ public class DesignSurfaceFormRenderer {
             // Render with a child renderer, passing project dir for further recursion
             var childRenderer = new DesignSurfaceFormRenderer();
             var extraPaths = ResolveProjectAssemblyPaths(_projectDir);
-            var pngBytes = childRenderer.RenderDesignerCode(designerContent, companionContent, extraPaths, _projectDir);
+            var pngBytes = childRenderer.RenderDesignerCode(
+                designerContent,
+                companionContent,
+                extraPaths,
+                _projectDir,
+                _currentRenderOptions.Theme,
+                _currentRenderOptions.Dpi,
+                _currentRenderOptions.ProviderProfile);
 
             // Create a Panel with the rendered image as background
             using var ms = new MemoryStream(pngBytes);
@@ -1175,9 +1227,23 @@ public class DesignSurfaceFormRenderer {
     internal static string BuildCacheKey(
         string designerContent,
         string? companionContent,
-        IEnumerable<string>? extraAssemblyPaths) {
+        IEnumerable<string>? extraAssemblyPaths,
+        string? theme = null,
+        int? dpi = null,
+        string? providerProfile = null) => BuildCacheKey(
+            designerContent,
+            companionContent,
+            extraAssemblyPaths,
+            RenderVisualOptions.Normalize(theme, dpi, providerProfile));
+
+    private static string BuildCacheKey(
+        string designerContent,
+        string? companionContent,
+        IEnumerable<string>? extraAssemblyPaths,
+        RenderVisualOptions options) {
         var input = new StringBuilder();
         input.AppendLine(AppContext.TargetFrameworkName ?? "unknown-tfm");
+        input.AppendLine(options.CacheToken);
         input.AppendLine(designerContent);
         input.AppendLine(companionContent ?? "");
 
