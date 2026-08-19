@@ -84,11 +84,12 @@ try {
     $archive = [System.IO.Compression.ZipFile]::OpenRead($distribution)
     try {
         $archiveEntries = @($archive.Entries | ForEach-Object FullName)
+        $normalizedArchiveEntries = @($archiveEntries | ForEach-Object { $_ -replace '\\', '/' })
         if ($archiveEntries -notcontains "winformsmcp.exe") {
             throw "Standalone distribution is missing winformsmcp.exe."
         }
         foreach ($tfm in @("net48", "netcoreapp3.1", "net8.0-windows")) {
-            if (-not ($archiveEntries | Where-Object { $_.StartsWith("rendererhost/$tfm/", [System.StringComparison]::OrdinalIgnoreCase) })) {
+            if (-not ($normalizedArchiveEntries | Where-Object { $_.StartsWith("rendererhost/$tfm/", [System.StringComparison]::OrdinalIgnoreCase) })) {
                 throw "Standalone distribution is missing RendererHost output for $tfm."
             }
         }

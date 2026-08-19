@@ -99,6 +99,30 @@ public class FormRenderingHelpersTests {
         }
     }
 
+    [Test]
+    public void ResolveProjectAssemblyPaths_FindsDllsInLegacyConfigurationDirectory() {
+        var projectDirectory = Path.Combine(_tempDir, "LegacyProject");
+        var releaseDirectory = Path.Combine(projectDirectory, "bin", "Release");
+        var debugDirectory = Path.Combine(projectDirectory, "bin", "Debug");
+        Directory.CreateDirectory(releaseDirectory);
+        Directory.CreateDirectory(debugDirectory);
+        var csproj = Path.Combine(projectDirectory, "LegacyProject.csproj");
+        File.WriteAllText(csproj, "<Project><PropertyGroup><TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion></PropertyGroup></Project>");
+        var assemblyPath = Path.Combine(releaseDirectory, "ThirdParty.dll");
+        var executablePath = Path.Combine(releaseDirectory, "LegacyProject.exe");
+        var debugExecutablePath = Path.Combine(debugDirectory, "LegacyProject.exe");
+        File.WriteAllText(assemblyPath, "assembly-placeholder");
+        File.WriteAllText(executablePath, "executable-placeholder");
+        File.WriteAllText(debugExecutablePath, "newer-debug-executable-placeholder");
+        File.SetLastWriteTimeUtc(debugExecutablePath, DateTime.UtcNow.AddMinutes(1));
+
+        var result = FormRenderingHelpers.ResolveProjectAssemblyPaths(csproj, "net472");
+
+        Assert.That(result, Does.Contain(assemblyPath));
+        Assert.That(result, Does.Contain(executablePath));
+        Assert.That(result, Does.Not.Contain(debugExecutablePath));
+    }
+
     // ── ParseDesignerFile ────────────────────────────────────────────
 
     [Test]

@@ -360,3 +360,46 @@ None.
 - Draft PR: #8, `feature/v20-release-prep` -> `feature/v19-runtime-identity`.
 - Windows Core CI: green for the pushed head `24a84ec` (push run `32259744121`, pull-request run `32259755640`).
 - External Claude Code Review run `32259755616` failed with 401 because the Claude Code GitHub App is not installed on this fork; no code change was made for this external-service failure.
+
+## Release Candidate Validation
+
+- Current phase: Release Candidate Validation, branch `release/v1.0.0-rc1`,
+  based on `feature/v20-release-prep` at `7bbd2b0`.
+- Added the frozen API reference at `docs/MCP-API.md` and the candidate gate at
+  `docs/release/v1.0.0-rc1-checklist.md`. The API inventory matches the 46
+  definitions in `ToolNames`/`ToolDefinitionCatalog`.
+- Real project target: read-only `D:\02_工作\在研项目\NGUS2`, project
+  `NGUS2\NGUS2.csproj`, existing `NGUSV3.2.exe`, `.NET Framework 4.7.2`,
+  AnyCPU, AntdUI 2.4.x.
+- UIA validation passed against a disposable copy of the release output:
+  attach, process status, one-window enumeration, 48-node element tree, a real
+  property read, window screenshot, unchanged screenshot diff, and a cached UIA
+  tab interaction. The original business repository was not modified.
+- RuntimeBridge status correctly degraded to a structured unavailable error for
+  NGUS2 because the current bridge targets `net48` and `net8.0-windows`; managed
+  tree, source mapping, and RuntimeBridge diagnostics remain unverified for this
+  target and are recorded as a compatibility limitation.
+- Real AntdUI rendering initially exposed two renderer dependency gaps:
+  legacy projects emitted assemblies directly in `bin\Release`, and the main
+  application assembly was an `.exe`. `FormRenderingHelpers` now considers
+  direct configuration output, DLL/EXE assemblies, and prefers the most
+  complete candidate directory. A regression test covers Debug-only EXE versus
+  Release DLL/EXE output.
+- After the fix, `winforms_render_form` rendered NGUS2 `MainForm.Designer.cs`
+  with AntdUI/Light/96 DPI successfully. The resulting PNG was 30,911 bytes and
+  no longer contained `Type not found` placeholders for NGUS2 custom controls.
+- Focused regression gate after the fix: `FormRenderingHelpersTests` 13 passed,
+  0 failed.
+- RC local gate completed at `2026-08-19 23:14:16 +08:00`: format and
+  verify-no-changes passed; restore passed; solution Release build passed with
+  0 warnings/errors; RendererHost `net48`, `netcoreapp3.1`, and
+  `net8.0-windows` build passed with 0 warnings/errors; full Release tests
+  passed at 407 total, 363 passed, 44 skipped, 0 failed.
+- Local package validation passed after the Windows ZIP path assertion was
+  normalized. It generated the three NuGet packages, one NPM tarball, and the
+  standalone ZIP in a temporary directory without publishing.
+- Problems found: RuntimeBridge TFM mismatch and nested UIA desktop-query
+  limitation; neither justified changing the protocol or adding a new tool.
+- Next: commit the RC documentation and the two renderer dependency fixes,
+  push the RC branch, and wait for Windows Core CI. Do not modify `main`,
+  publish packages, or touch NGUS2/AntdUI source repositories.
