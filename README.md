@@ -169,6 +169,11 @@ field meanings, coordinate conventions, and safe handoff patterns.
 | `RUNTIME_BRIDGE_ENABLED` | `true` | Enable RuntimeBridge discovery and inspection tools |
 | `RUNTIME_BRIDGE_CONNECT_TIMEOUT_MS` | `1000` | Maximum time to connect to a target process bridge |
 | `RUNTIME_BRIDGE_REQUEST_TIMEOUT_MS` | `5000` | Maximum time to await one RuntimeBridge snapshot |
+| `UIA_WORKER_ENABLED` | `true` | Isolate supported read-only UIA queries in a restartable worker process |
+| `UIA_WORKER_PATH` | auto | Optional explicit path to `Rhombus.WinFormsMcp.UiaWorker.exe` |
+| `UIA_WORKER_STARTUP_TIMEOUT_MS` | `5000` | Maximum time to start and handshake with the UIA worker |
+| `UIA_WORKER_REQUEST_TIMEOUT_MS` | `15000` | Maximum duration of one isolated UIA worker request |
+| `UIA_WORKER_MAX_RESPONSE_BYTES` | `1048576` | Maximum accepted UIA worker response size |
 
 ## Server architecture
 
@@ -181,6 +186,12 @@ registered through a validated `ToolRegistry`.
 window, input, screenshot, clipboard, hidden-desktop, and UIA-event behavior is
 implemented by focused services under `Automation/`. Every MCP call has a shared
 timeout and cancellation pipeline, elapsed-time logging, and structured errors.
+
+Root-level `element_exists` and `wait_for_element` probes run in the dedicated
+`Rhombus.WinFormsMcp.UiaWorker` process when enabled. If a UI Automation provider
+blocks beyond the configured timeout, the server terminates the worker and creates
+a clean process on the next request. Live `AutomationElement` instances never cross
+the process boundary. Headless mode keeps the existing in-process desktop-aware path.
 
 RendererHost has separate startup and request timeouts. A stuck or invalid host is
 terminated and recreated on the next render. Renderer cache keys include the host
