@@ -14,9 +14,13 @@ internal static class ControlDiagnosticRules {
         int maxNodes,
         int maxDiagnostics,
         bool traversalTruncated,
-        CancellationToken cancellationToken) {
+        CancellationToken cancellationToken,
+        int processId = 0,
+        string? bridgeInstanceId = null) {
         var checks = NormalizeChecks(requestedChecks);
         var result = new RuntimeDiagnosticsSnapshot {
+            ProcessId = processId,
+            BridgeInstanceId = bridgeInstanceId,
             Checks = checks.OrderBy(value => value, StringComparer.Ordinal).ToList(),
             ScannedNodes = controls.Count,
             MaxNodes = maxNodes,

@@ -26,7 +26,8 @@ internal sealed class GetSourceMappingToolHandler : IToolHandler {
                 controlId,
                 ["identity"],
                 null,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                bridgeInstanceId: RuntimeToolSupport.GetBridgeInstanceId(arguments)).ConfigureAwait(false);
             var mapping = await _sourceMapping.MapAsync(
                 pid,
                 inspection.Summary.Identity,

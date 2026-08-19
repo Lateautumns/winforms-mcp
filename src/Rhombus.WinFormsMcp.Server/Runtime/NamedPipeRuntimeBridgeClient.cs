@@ -63,12 +63,14 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
         string? rootId,
         int maxDepth,
         int maxNodes,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null) =>
         SendAsync<ControlTreeSnapshot>(
             processId,
             RuntimeBridgeProtocol.GetControlTree,
             new { rootId, maxDepth, maxNodes },
-            cancellationToken);
+            cancellationToken,
+            bridgeInstanceId);
 
     public Task<ControlInspectionSnapshot> InspectControlAsync(
         int processId,
@@ -76,22 +78,26 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
         IReadOnlyCollection<string>? sections,
         IReadOnlyCollection<string>? includeProperties,
         CancellationToken cancellationToken,
-        ControlSemanticOptions? semanticOptions = null) =>
+        ControlSemanticOptions? semanticOptions = null,
+        string? bridgeInstanceId = null) =>
         SendAsync<ControlInspectionSnapshot>(
             processId,
             RuntimeBridgeProtocol.InspectControl,
             new { controlId, sections, includeProperties, semanticOptions },
-            cancellationToken);
+            cancellationToken,
+            bridgeInstanceId);
 
     public async Task<IReadOnlyList<ControlAncestorSnapshot>> GetAncestorsAsync(
         int processId,
         string controlId,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null) =>
         await SendAsync<List<ControlAncestorSnapshot>>(
             processId,
             RuntimeBridgeProtocol.GetAncestors,
             new { controlId },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            bridgeInstanceId).ConfigureAwait(false);
 
     public Task<IReadOnlyList<WindowSnapshot>> GetWindowTreeAsync(
         int processId,
@@ -103,22 +109,26 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
         int processId,
         int maxNodes,
         CancellationToken cancellationToken,
-        int maxItems) =>
+        int maxItems,
+        string? bridgeInstanceId = null) =>
         await SendAsync<List<WindowSnapshot>>(
             processId,
             RuntimeBridgeProtocol.GetWindowTree,
             new { maxNodes, maxItems },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            bridgeInstanceId).ConfigureAwait(false);
 
     public async Task<IReadOnlyList<ControlBindingSnapshot>> GetBindingsAsync(
         int processId,
         string controlId,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null) =>
         await SendAsync<List<ControlBindingSnapshot>>(
             processId,
             RuntimeBridgeProtocol.GetBindings,
             new { controlId },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            bridgeInstanceId).ConfigureAwait(false);
 
     public Task<RuntimeDiagnosticsSnapshot> DetectDiagnosticsAsync(
         int processId,
@@ -127,12 +137,14 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
         int maxDepth,
         int maxNodes,
         int maxDiagnostics,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null) =>
         SendAsync<RuntimeDiagnosticsSnapshot>(
             processId,
             RuntimeBridgeProtocol.DetectDiagnostics,
             new { rootId, checks, maxDepth, maxNodes, maxDiagnostics },
-            cancellationToken);
+            cancellationToken,
+            bridgeInstanceId);
 
     public Task<RuntimeAccessibilitySnapshot> GetAccessibilityAsync(
         int processId,
@@ -140,12 +152,14 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
         int maxDepth,
         int maxNodes,
         int maxDiagnostics,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null) =>
         SendAsync<RuntimeAccessibilitySnapshot>(
             processId,
             RuntimeBridgeProtocol.GetAccessibility,
             new { rootId, maxDepth, maxNodes, maxDiagnostics },
-            cancellationToken);
+            cancellationToken,
+            bridgeInstanceId);
 
     public Task<RuntimeEventTraceSnapshot> StartEventTraceAsync(
         int processId,
@@ -154,34 +168,40 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
         int maxEvents,
         int durationMs,
         int maxNodes,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null) =>
         SendAsync<RuntimeEventTraceSnapshot>(
             processId,
             RuntimeBridgeProtocol.StartEventTrace,
             new { rootId, events, maxEvents, durationMs, maxNodes },
-            cancellationToken);
+            cancellationToken,
+            bridgeInstanceId);
 
     public Task<RuntimeEventTraceSnapshot> ReadEventTraceAsync(
         int processId,
         string traceId,
         long afterSequence,
         int maxEvents,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null) =>
         SendAsync<RuntimeEventTraceSnapshot>(
             processId,
             RuntimeBridgeProtocol.ReadEventTrace,
             new { traceId, afterSequence, maxEvents },
-            cancellationToken);
+            cancellationToken,
+            bridgeInstanceId);
 
     public Task<RuntimeEventTraceSnapshot> StopEventTraceAsync(
         int processId,
         string traceId,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null) =>
         SendAsync<RuntimeEventTraceSnapshot>(
             processId,
             RuntimeBridgeProtocol.StopEventTrace,
             new { traceId },
-            cancellationToken);
+            cancellationToken,
+            bridgeInstanceId);
 
     public void Dispose() {
         if (_disposed)
@@ -196,7 +216,8 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
         int processId,
         string command,
         object arguments,
-        CancellationToken cancellationToken) {
+        CancellationToken cancellationToken,
+        string? expectedBridgeInstanceId = null) {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!_options.Value.RuntimeBridgeEnabled)
             throw new RuntimeBridgeException("runtime_bridge_disabled", "RuntimeBridge is disabled by configuration.", false);
@@ -232,6 +253,13 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
                         $"RuntimeBridge identified process {hello.Process.ProcessId}, expected {processId}.",
                         false);
                 bridgeInstanceId = hello.BridgeInstanceId;
+                if (!string.IsNullOrWhiteSpace(expectedBridgeInstanceId) &&
+                    !string.Equals(expectedBridgeInstanceId, bridgeInstanceId, StringComparison.Ordinal)) {
+                    throw new RuntimeBridgeException(
+                        "bridge_instance_mismatch",
+                        "The runtime identity belongs to a different RuntimeBridge instance. Refresh the managed control tree.",
+                        false);
+                }
             }
 
             var request = CreateRequest(processId, command, arguments, bridgeInstanceId);

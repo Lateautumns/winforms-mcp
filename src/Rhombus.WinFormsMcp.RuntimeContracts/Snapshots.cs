@@ -32,6 +32,13 @@ public sealed class ControlIdentity {
     public string? UiaId { get; set; }
     public string? Hwnd { get; set; }
     public int ProcessId { get; set; }
+    /// <summary>
+    /// Per-host instance ID returned by RuntimeBridge hello. Together with
+    /// <see cref="ProcessId"/> and <see cref="ManagedId"/>, this distinguishes
+    /// a live control from a stale ID after the target bridge restarts.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BridgeInstanceId { get; set; }
     public string ControlPath { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
@@ -210,6 +217,9 @@ public sealed class ControlInspectionSnapshot {
 
 public sealed class ControlAncestorSnapshot {
     public string ManagedId { get; set; } = string.Empty;
+    public int ProcessId { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BridgeInstanceId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
     public string ControlPath { get; set; } = string.Empty;
@@ -247,6 +257,9 @@ public sealed class ProviderWindowMetadataSnapshot {
     public string SemanticType { get; set; } = string.Empty;
     public string Hwnd { get; set; } = string.Empty;
     public string? OwnerControlId { get; set; }
+    public int? OwnerProcessId { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OwnerBridgeInstanceId { get; set; }
     public string? OwnerControlPath { get; set; }
     public string? OwnerControlName { get; set; }
     public string? OwnerControlType { get; set; }
@@ -340,6 +353,10 @@ public sealed class SourceIdentitySnapshot {
     public string? FullyQualifiedSymbol { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? RuntimeControlId { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? RuntimeProcessId { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RuntimeBridgeInstanceId { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? RuntimeControlName { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

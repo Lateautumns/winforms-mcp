@@ -95,6 +95,7 @@ public sealed class RuntimeInspectionTests {
                 Assert.That(tree.Truncated, Is.False);
                 Assert.That(inspection.Summary.Identity.Type, Does.EndWith(".Button"));
                 Assert.That(inspection.Summary.Identity.OwnerType, Does.EndWith(".Form1"));
+                Assert.That(inspection.Summary.Identity.BridgeInstanceId, Is.EqualTo(status?.BridgeInstanceId));
                 Assert.That(status?.Process?.BridgeVersion, Is.EqualTo("1.5.12-beta"));
                 Assert.That(status?.Capabilities, Does.Contain("providerSemantics"));
                 Assert.That(status?.Capabilities, Does.Contain("diagnostics"));
@@ -117,9 +118,13 @@ public sealed class RuntimeInspectionTests {
                 Assert.That(shallowTree.Truncated, Is.True);
                 Assert.That(windows.SelectMany(FlattenWindows).Select(window => window.Hwnd), Is.Unique);
                 Assert.That(diagnostics.ScannedNodes, Is.GreaterThan(0));
+                Assert.That(diagnostics.ProcessId, Is.EqualTo(process.Id));
+                Assert.That(diagnostics.BridgeInstanceId, Is.EqualTo(status?.BridgeInstanceId));
                 Assert.That(diagnostics.Checks, Is.EquivalentTo(new[] { "bindings", "dpi", "layout" }));
                 Assert.That(diagnostics.Diagnostics.All(item => item.Evidence.Count > 0), Is.True);
                 Assert.That(accessibility.ScannedNodes, Is.GreaterThan(0));
+                Assert.That(accessibility.ProcessId, Is.EqualTo(process.Id));
+                Assert.That(accessibility.BridgeInstanceId, Is.EqualTo(status?.BridgeInstanceId));
                 Assert.That(accessibility.Controls.Select(item => item.Summary.Identity.Name), Does.Contain("textBox"));
             });
 
@@ -210,10 +215,14 @@ public sealed class RuntimeInspectionTests {
 
             Assert.Multiple(() => {
                 Assert.That(trace.Active, Is.True);
+                Assert.That(trace.ProcessId, Is.EqualTo(process.Id));
+                Assert.That(trace.BridgeInstanceId, Is.EqualTo(status?.BridgeInstanceId));
                 Assert.That(trace.SubscribedControlCount, Is.EqualTo(1));
                 Assert.That(read?.Events, Has.Count.GreaterThanOrEqualTo(1));
                 Assert.That(read?.Events[0].EventName, Is.EqualTo("TextChanged"));
                 Assert.That(read?.Events[0].ControlId, Is.EqualTo(textBox.Summary.Identity.ManagedId));
+                Assert.That(read?.Events[0].ProcessId, Is.EqualTo(process.Id));
+                Assert.That(read?.Events[0].BridgeInstanceId, Is.EqualTo(status?.BridgeInstanceId));
                 Assert.That(read?.Events[0].Evidence, Does.ContainKey("state"));
                 Assert.That(stopped.Active, Is.False);
             });

@@ -21,7 +21,8 @@ internal sealed class GetControlTreeToolHandler : IToolHandler {
                 ToolArguments.GetString(arguments, "rootId"),
                 ToolArguments.GetInt32(arguments, "maxDepth", 4),
                 ToolArguments.GetInt32(arguments, "maxNodes", 200),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                RuntimeToolSupport.GetBridgeInstanceId(arguments)).ConfigureAwait(false);
             return ToolJson.Result(new {
                 success = true,
                 roots = snapshot.Roots,

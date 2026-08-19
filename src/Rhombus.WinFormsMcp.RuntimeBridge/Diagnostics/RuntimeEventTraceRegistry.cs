@@ -19,12 +19,17 @@ internal sealed class RuntimeEventTraceRegistry : IDisposable {
     private readonly object _gate = new();
     private readonly RuntimeBridgeOptions _options;
     private readonly Action<Action> _postToUi;
+    private readonly string _bridgeInstanceId;
     private readonly Dictionary<string, TraceSession> _sessions = new(StringComparer.Ordinal);
     private bool _disposed;
 
-    public RuntimeEventTraceRegistry(RuntimeBridgeOptions options, Action<Action>? postToUi = null) {
+    public RuntimeEventTraceRegistry(
+        RuntimeBridgeOptions options,
+        Action<Action>? postToUi = null,
+        string? bridgeInstanceId = null) {
         _options = options;
         _postToUi = postToUi ?? (action => action());
+        _bridgeInstanceId = bridgeInstanceId ?? string.Empty;
     }
 
     public RuntimeEventTraceSnapshot Start(
@@ -46,7 +51,9 @@ internal sealed class RuntimeEventTraceRegistry : IDisposable {
                 DateTimeOffset.UtcNow,
                 DateTimeOffset.UtcNow.AddMilliseconds(boundedDuration),
                 boundedEvents,
-                eventNames);
+                eventNames,
+                _options.ProcessId,
+                _bridgeInstanceId);
             foreach (var target in controls.Take(Math.Max(1, _options.MaxEventTraceControls)))
                 session.Subscribe(target);
             _sessions[session.TraceId] = session;
@@ -58,7 +65,7 @@ internal sealed class RuntimeEventTraceRegistry : IDisposable {
                     // Host shutdown performs a final synchronous cleanup.
                 }
             });
-            return session.Snapshot();
+            return session.Snapshot(_options.ProcessId, _bridgeInstanceId);
         }
     }
 
@@ -71,7 +78,11 @@ internal sealed class RuntimeEventTraceRegistry : IDisposable {
             ExpireSessionsUnsafe();
             if (!_sessions.TryGetValue(traceId, out var session))
                 throw new InvalidOperationException($"Event trace '{traceId}' was not found or has expired.");
-            return session.Snapshot(afterSequence, Clamp(maxEvents, 1, session.MaxEvents));
+            return session.Snapshot(
+                _options.ProcessId,
+                _bridgeInstanceId,
+                afterSequence,
+                Clamp(maxEvents, 1, session.MaxEvents));
         }
     }
 
@@ -83,7 +94,7 @@ internal sealed class RuntimeEventTraceRegistry : IDisposable {
                 throw new InvalidOperationException($"Event trace '{traceId}' was not found or has expired.");
             _sessions.Remove(traceId);
             session.Dispose();
-            return session.Snapshot(active: false);
+            return session.Snapshot(_options.ProcessId, _bridgeInstanceId, active: false);
         }
     }
 
@@ -159,6 +170,8 @@ internal sealed class RuntimeEventTraceRegistry : IDisposable {
     private sealed class TraceSession : IDisposable {
         private readonly object _gate = new();
         private readonly string[] _eventNames;
+        private readonly int _processId;
+        private readonly string _bridgeInstanceId;
         private readonly Queue<RuntimeEventSnapshot> _events = new();
         private readonly List<(Control Control, string EventName, Delegate Handler)> _subscriptions = new();
         private long _nextSequence = 1;
@@ -172,12 +185,16 @@ internal sealed class RuntimeEventTraceRegistry : IDisposable {
             DateTimeOffset startedAtUtc,
             DateTimeOffset expiresAtUtc,
             int maxEvents,
-            string[] eventNames) {
+            string[] eventNames,
+            int processId,
+            string bridgeInstanceId) {
             TraceId = traceId;
             StartedAtUtc = startedAtUtc;
             ExpiresAtUtc = expiresAtUtc;
             MaxEvents = maxEvents;
             _eventNames = eventNames;
+            _processId = processId;
+            _bridgeInstanceId = bridgeInstanceId;
         }
 
         public string TraceId { get; }
@@ -203,6 +220,8 @@ internal sealed class RuntimeEventTraceRegistry : IDisposable {
         }
 
         public RuntimeEventTraceSnapshot Snapshot(
+            int processId,
+            string bridgeInstanceId,
             long afterSequence = 0,
             int? maxEvents = null,
             bool? active = null) {
@@ -217,6 +236,8 @@ internal sealed class RuntimeEventTraceRegistry : IDisposable {
                 var nextSequence = selected.Count == 0 ? afterSequence : selected[selected.Count - 1].Sequence;
                 return new RuntimeEventTraceSnapshot {
                     TraceId = TraceId,
+                    ProcessId = processId,
+                    BridgeInstanceId = string.IsNullOrWhiteSpace(bridgeInstanceId) ? null : bridgeInstanceId,
                     Active = active ?? (!_disposed && ExpiresAtUtc > DateTimeOffset.UtcNow),
                     StartedAtUtc = StartedAtUtc,
                     ExpiresAtUtc = ExpiresAtUtc,
@@ -333,6 +354,8 @@ internal sealed class RuntimeEventTraceRegistry : IDisposable {
                     Sequence = _nextSequence++,
                     TimestampUtc = DateTimeOffset.UtcNow,
                     TraceId = TraceId,
+                    ProcessId = _processId,
+                    BridgeInstanceId = string.IsNullOrWhiteSpace(_bridgeInstanceId) ? null : _bridgeInstanceId,
                     ControlId = target.ControlId,
                     ControlName = target.ControlName,
                     ControlType = target.ControlType,
@@ -384,6 +407,8 @@ internal sealed class RuntimeEventTraceRegistry : IDisposable {
             Sequence = source.Sequence,
             TimestampUtc = source.TimestampUtc,
             TraceId = source.TraceId,
+            ProcessId = source.ProcessId,
+            BridgeInstanceId = source.BridgeInstanceId,
             ControlId = source.ControlId,
             ControlName = source.ControlName,
             ControlType = source.ControlType,

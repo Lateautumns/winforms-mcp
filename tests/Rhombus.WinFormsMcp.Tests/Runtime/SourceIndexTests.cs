@@ -3,6 +3,7 @@ using System.Text.Json;
 using Rhombus.WinFormsMcp.RuntimeContracts;
 using Rhombus.WinFormsMcp.Server.Runtime;
 using Rhombus.WinFormsMcp.Server.Tools;
+using Rhombus.WinFormsMcp.Server.Tools.Runtime;
 
 namespace Rhombus.WinFormsMcp.Tests.Runtime;
 
@@ -27,6 +28,51 @@ public sealed class SourceIndexTests {
             Assert.That(properties.TryGetProperty("maxFiles", out _), Is.True);
             Assert.That(required.EnumerateArray().Select(value => value.GetString()), Does.Not.Contain("maxFiles"));
         });
+    }
+
+    [Test]
+    public void RuntimeToolSchemas_ExposeOptionalBridgeInstanceId() {
+        var runtimeToolNames = new[] {
+            ToolNames.GetControlTree,
+            ToolNames.InspectControl,
+            ToolNames.GetAncestors,
+            ToolNames.GetWindowTree,
+            ToolNames.GetBindings,
+            ToolNames.GetSourceMapping,
+            ToolNames.DetectLayoutIssues,
+            ToolNames.CheckAccessibility,
+            ToolNames.StartEventTrace,
+            ToolNames.ReadEventTrace,
+            ToolNames.StopEventTrace
+        };
+
+        foreach (var name in runtimeToolNames) {
+            var tool = ToolDefinitionCatalog.All.Single(definition => definition.Name == name);
+            var properties = tool.InputSchema.GetProperty("properties");
+            var required = tool.InputSchema.GetProperty("required");
+
+            Assert.Multiple(() => {
+                Assert.That(properties.TryGetProperty("bridgeInstanceId", out var instance), Is.True, name);
+                Assert.That(instance.GetProperty("type").GetString(), Is.EqualTo("string"), name);
+                Assert.That(
+                    required.EnumerateArray().Select(value => value.GetString()),
+                    Does.Not.Contain("bridgeInstanceId"),
+                    name);
+            });
+        }
+    }
+
+    [Test]
+    public void RuntimeToolSupport_RejectsMalformedBridgeInstanceId() {
+        Assert.That(
+            () => RuntimeToolSupport.GetBridgeInstanceId(JsonDocument.Parse("{\"bridgeInstanceId\":true}").RootElement),
+            Throws.TypeOf<ToolExecutionException>().With.Property("Code").EqualTo("invalid_argument"));
+        Assert.That(
+            () => RuntimeToolSupport.GetBridgeInstanceId(JsonDocument.Parse("{\"bridgeInstanceId\":\"\"}").RootElement),
+            Is.Null);
+        Assert.That(
+            () => RuntimeToolSupport.GetBridgeInstanceId(JsonDocument.Parse("{\"bridgeInstanceId\":\"" + new string('x', 129) + "\"}").RootElement),
+            Throws.TypeOf<ToolExecutionException>().With.Property("Code").EqualTo("invalid_argument"));
     }
 
     [Test]

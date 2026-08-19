@@ -17,7 +17,11 @@ internal sealed class GetAncestorsToolHandler : IToolHandler {
         var pid = RuntimeToolSupport.RequirePid(arguments);
         var controlId = ToolArguments.RequireString(arguments, "controlId");
         try {
-            var ancestors = await _client.GetAncestorsAsync(pid, controlId, cancellationToken).ConfigureAwait(false);
+            var ancestors = await _client.GetAncestorsAsync(
+                pid,
+                controlId,
+                cancellationToken,
+                RuntimeToolSupport.GetBridgeInstanceId(arguments)).ConfigureAwait(false);
             return ToolJson.Result(new { success = true, controlId, ancestors });
         }
         catch (RuntimeBridgeException ex) {

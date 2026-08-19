@@ -319,3 +319,24 @@ None.
 - Full elevated Release test run: 379 total, 335 passed, 44 skipped, 0 failed.
 - Windows Core CI passed for feature commit cd7ef0e: push run 32236157363 and pull_request run 32236160606.
 - External Claude Code Review run 32236160617 failed with the known missing-GitHub-App 401 and is not a Core CI failure.
+
+## Stage 11 Runtime Identity Gate Evidence
+
+- Runtime-scoped identities now carry `processId` and `bridgeInstanceId` across managed control summaries, ancestors, layered-window ownership metadata, source mapping, diagnostics, and event-trace snapshots.
+- Existing runtime/diagnostics Tools keep all prior required parameters and accept one optional `bridgeInstanceId`; the Tool registry remains at 46 Tools.
+- The named-pipe client performs hello negotiation for every runtime request and rejects an expected stale instance before sending the command. Legacy clients that omit the optional identity remain compatible.
+- Runtime identity tests cover weak control lifetime, host stale-instance rejection, client-side stale-instance rejection, legacy fallback, concurrent shutdown, and output context propagation.
+- `dotnet format Rhombus.WinFormsMcp.sln --verbosity quiet`: passed.
+- `dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes --verbosity quiet`: passed.
+- `dotnet restore Rhombus.WinFormsMcp.sln`: passed.
+- `dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false`: passed with 0 warnings and 0 errors.
+- `dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false`: passed for net48, netcoreapp3.1, and net8.0-windows with 0 warnings and 0 errors.
+- Focused identity/lifecycle/inspection/source-index/diagnostics tests: 48 passed, 0 failed.
+- Full Release test run: 406 total, 362 passed, 44 skipped, 0 failed.
+- AntdUI reference repository remained read-only; its pre-existing untracked `.codegraph` analysis artifacts were not touched or committed.
+
+## Stage 12 Release Preparation Scope
+
+- Release preparation is local-only: package manifests, compatibility documentation, migration/release notes, and reproducible local package/ZIP checks are allowed.
+- No NuGet push, NPM publish, GitHub release, or modification of `main` is permitted during unattended execution.
+- Compatibility claims will distinguish locally verified targets from Windows/OS combinations not available in the current environment.
