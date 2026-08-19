@@ -51,7 +51,10 @@ internal static class ToolDefinitionCatalog {
             ("menuPath", Array("Menu labels from root to target", "string")), ("pid", Integer("Optional process ID"))), "menuPath"),
         Define(ToolNames.RenderForm, "Render a WinForms Designer file to a PNG without building the target project.", Props(
             ("designerFilePath", String("Designer.cs or companion .cs path")),
-            ("outputPath", String("Optional path where the PNG is also saved"))), "designerFilePath"),
+            ("outputPath", String("Optional path where the PNG is also saved")),
+            ("theme", String("Optional visual theme: Light, Dark, or Auto")),
+            ("dpi", Integer("Optional render DPI: 96, 120, 144, or 192")),
+            ("providerProfile", String("Optional provider profile: AntdUI or StandardWinForms"))), "designerFilePath"),
         Define(ToolNames.GetElementTree, "Return a bounded UI Automation tree and cache every returned element.", Props(
             ("pid", Integer("Process whose main window is the root")), ("elementId", String("Optional cached root element ID")),
             ("depth", Integer("Maximum traversal depth")), ("maxElements", Integer("Maximum returned elements")))),

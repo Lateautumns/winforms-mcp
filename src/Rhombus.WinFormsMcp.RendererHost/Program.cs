@@ -40,10 +40,16 @@ class Program {
                         var pngBytes = renderer.RenderDesignerCode(
                             request.DesignerContent,
                             request.CompanionContent,
-                            request.ExtraAssemblyPaths);
+                            request.ExtraAssemblyPaths,
+                            theme: request.Theme,
+                            dpi: request.Dpi,
+                            providerProfile: request.ProviderProfile);
                         response = JsonSerializer.Serialize(new RenderResponse {
                             Success = true,
-                            PngBase64 = Convert.ToBase64String(pngBytes)
+                            PngBase64 = Convert.ToBase64String(pngBytes),
+                            Theme = request.Theme,
+                            Dpi = request.Dpi,
+                            ProviderProfile = request.ProviderProfile
                         }, JsonOptions.Default);
                     }
                 }
@@ -103,6 +109,9 @@ class RenderRequest {
     public string DesignerContent { get; set; } = "";
     public string? CompanionContent { get; set; }
     public string[]? ExtraAssemblyPaths { get; set; }
+    public string? Theme { get; set; }
+    public int? Dpi { get; set; }
+    public string? ProviderProfile { get; set; }
 }
 
 class RenderResponse {
@@ -112,6 +121,9 @@ class RenderResponse {
     public string? Error { get; set; }
     public string? ExceptionType { get; set; }
     public string? Details { get; set; }
+    public string? Theme { get; set; }
+    public int? Dpi { get; set; }
+    public string? ProviderProfile { get; set; }
 }
 
 static class JsonOptions {

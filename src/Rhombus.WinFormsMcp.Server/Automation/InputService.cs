@@ -9,6 +9,7 @@ namespace Rhombus.WinFormsMcp.Server.Automation;
 /// Performs UIA-backed and simulated mouse/keyboard input.
 /// </summary>
 internal sealed class InputService {
+    private const int MaxWindowMessageTextLength = 4096;
     private readonly HeadlessDesktopService _desktopService;
 
     public InputService(HeadlessDesktopService desktopService) {
@@ -62,6 +63,9 @@ internal sealed class InputService {
             return;
         }
 
+        if (TrySendTextViaWindowMessage(element, text, clearFirst))
+            return;
+
         _desktopService.EnsureInputAvailable(
             element,
             "type_text (ValuePattern not available on this control)",
@@ -81,6 +85,9 @@ internal sealed class InputService {
             valuePattern.SetValue(value);
             return;
         }
+
+        if (TrySendTextViaWindowMessage(element, value, clearFirst: true))
+            return;
 
         _desktopService.EnsureInputAvailable(
             element,
@@ -229,6 +236,59 @@ internal sealed class InputService {
         }
 
         return null;
+    }
+
+    private static bool TrySendTextViaWindowMessage(
+        AutomationElement element,
+        string text,
+        bool clearFirst) {
+        var hwnd = GetNativeWindowHandle(element);
+        if (hwnd == IntPtr.Zero || text.Length > MaxWindowMessageTextLength)
+            return false;
+
+        if (clearFirst) {
+            var currentText = GetElementText(element);
+            if (currentText.Length > MaxWindowMessageTextLength
+                || !NativeMethods.TrySendKeyMessage(hwnd, System.Windows.Forms.Keys.End)) {
+                return false;
+            }
+
+            for (var index = 0; index < currentText.Length; index++) {
+                if (!NativeMethods.TrySendKeyMessage(hwnd, System.Windows.Forms.Keys.Back))
+                    return false;
+            }
+        }
+
+        foreach (var character in text) {
+            var sent = character switch {
+                '\r' => true,
+                '\n' => NativeMethods.TrySendKeyMessage(hwnd, System.Windows.Forms.Keys.Enter),
+                '\t' => NativeMethods.TrySendKeyMessage(hwnd, System.Windows.Forms.Keys.Tab),
+                _ => NativeMethods.TrySendCharMessage(hwnd, character)
+            };
+            if (!sent)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static string GetElementText(AutomationElement element) {
+        try {
+            return element.Name ?? string.Empty;
+        }
+        catch {
+            return string.Empty;
+        }
+    }
+
+    private static IntPtr GetNativeWindowHandle(AutomationElement element) {
+        try {
+            return (IntPtr)element.Properties.NativeWindowHandle.ValueOrDefault;
+        }
+        catch {
+            return IntPtr.Zero;
+        }
     }
 
     private static string EncodeSendKeysCharacter(char character) =>
