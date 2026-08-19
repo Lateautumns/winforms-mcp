@@ -11,6 +11,10 @@
 </p>
 
 <p align="center">
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">中文</a>
+</p>
+
+<p align="center">
   An <a href="https://modelcontextprotocol.io">MCP server</a> that lets Claude (and any MCP-compatible agent) launch, automate, screenshot, and preview WinForms applications — without touching a mouse.
 </p>
 
@@ -68,42 +72,6 @@ One line in your MCP config. Now the agent can:
 > **Note:** Keep the extracted folder structure intact — `render_form` needs the `rendererhost/` subdirectory alongside the exe.
 
 That's it. The agent can now see and interact with any WinForms application on your machine.
-
-## 中文配置与 AI 使用指南
-
-如果你要在另一台 Windows 电脑上配置本服务，或希望让 AI 按固定流程读取项目、启动
-WinForms、检查控件、定位源码并验证截图，请先阅读：
-
-**[中文配置与 AI 使用指南](docs/Chinese-Configuration-and-AI-Usage.md)**
-
-指南包含：
-
-- NPM、独立 ZIP、源码/RC 三种安装方式；
-- Claude Code、Claude Desktop、Cline、Cursor、VS Code 的 stdio 配置示例；
-- Windows x64、.NET 8 Desktop Runtime、Node.js 和 RendererHost 前置条件；
-- `HEADLESS`、`TFM`、超时、RuntimeBridge、UIA Worker 等环境变量；
-- AI 首次连接提示词、进程/控件/源码/截图的标准调用顺序；
-- `RuntimeBridge` 接入、AntdUI/Designer 渲染和常见故障排查。
-
-最小通用配置如下（将 `command` 替换为目标电脑实际可执行路径）：
-
-```json
-{
-  "mcpServers": {
-    "winforms-mcp": {
-      "command": "npx",
-      "args": ["-y", "@fnrhombus/winforms-mcp"],
-      "env": {
-        "HEADLESS": "false",
-        "TELEMETRY_OPTOUT": "true"
-      }
-    }
-  }
-}
-```
-
-WinForms MCP 通过 stdio 提供 46 个 `winforms_*` 工具；它不是任意 Shell 执行器。
-AI 的终端权限和源码编辑权限仍由 Claude Code、Cursor、Cline 或其他宿主单独管理。
 
 ## Tools
 
