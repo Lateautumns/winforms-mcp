@@ -401,9 +401,9 @@ None.
 - Problems found: RuntimeBridge TFM mismatch and nested UIA desktop-query
   limitation; neither justified changing the protocol or adding a new tool.
 - Draft PR #9 targets `feature/v20-release-prep` with head
-  `release/v1.0.0-rc1`; Windows Core CI passed for head `ba61a4e` (run
-  `32269456824`).
-- External Claude Code Review run `32269456820` failed with the known 401
+  `release/v1.0.0-rc1`; final head `3a106a5` passed Windows Core CI (run
+  `32269927318`).
+- External Claude Code Review run `32269927308` failed with the known 401
   because the Claude Code GitHub App is not installed on this fork; this is
   non-blocking and caused no code change.
 - RC validation is complete. Remaining work is human acceptance of the
