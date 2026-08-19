@@ -77,7 +77,7 @@ dotnet run --project src/Rhombus.WinFormsMcp.Server -c Release
 | 诊断 | 检查布局、DPI、可访问性并跟踪受限 WinForms 事件 |
 | AntdUI 语义 | 读取 Button、Input、Table、Tree、Tabs 等控件的语义信息 |
 
-当前服务注册 46 个 `winforms_*` 工具。工具名称、输入字段和输出结构以 [MCP API 文档](docs/MCP-API.md) 为准。
+当前服务注册 46 个 `winforms_*` 工具。工具名称、输入字段和输出结构以 [MCP API 文档](docs/MCP-API.zh-CN.md) 为准。
 
 ## 推荐使用流程
 
@@ -129,10 +129,12 @@ WinForms MCP **不是任意 Shell 执行器**：
 
 ## 文档
 
+- [中文文档索引](docs/Chinese-Documentation-Index.md)
 - [中文配置与 AI 使用指南](docs/Chinese-Configuration-and-AI-Usage.md)
-- [MCP API 清单](docs/MCP-API.md)
-- [架构说明](docs/architecture/Release-Architecture.md)
-- [发布检查清单](docs/release/v1.0.0-rc1-checklist.md)
+- [中文 MCP API](docs/MCP-API.zh-CN.md)
+- [中文发布架构](docs/architecture/Release-Architecture.zh-CN.md)
+- [中文兼容性矩阵](docs/release/Compatibility-Matrix.zh-CN.md)
+- [中文发布检查清单](docs/release/v1.0.0-rc1-checklist.zh-CN.md)
 - [English README](README.md)
 
 ## 许可证

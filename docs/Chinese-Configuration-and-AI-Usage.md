@@ -23,7 +23,7 @@ WinForms MCP 的定位是让 AI 能够观察、运行、操作和验证 Windows 
 | 视觉验证 | 直接渲染 `.Designer.cs`，或对运行窗口截图、比较修改前后的 PNG |
 | 诊断 | 布局、DPI、可访问性和受限 WinForms 事件跟踪 |
 
-当前工具名、输入字段和输出结构以 [MCP API 文档](MCP-API.md) 为准。当前注册表
+当前工具名、输入字段和输出结构以 [MCP API 文档](MCP-API.zh-CN.md) 为准。当前注册表
 包含 46 个 `winforms_*` 工具。
 
 ### 重要的权限边界
@@ -310,7 +310,7 @@ Servers** 设置页面打开配置，粘贴“通用 JSON 配置”中的 `winfo
 ```text
 你现在连接了 WinForms MCP。项目根目录是：C:/work/MyWinFormsApp
 请遵守以下流程：
-1. 先读取 README.md 和 docs/MCP-API.md，确认项目和工具边界。
+1. 先读取 README.md 和 docs/MCP-API.zh-CN.md，确认项目和工具边界。
 2. 不要猜 PID、elementId 或 controlId；先 launch/attach，再读取 process status。
 3. 先用 winforms_get_element_tree 了解 UIA，再调用 winforms_runtime_status 判断是否有 Managed RuntimeBridge。
 4. Bridge 可用时使用 winforms_get_control_tree 和 winforms_inspect_control 理解真实 Control；Bridge 不可用时
@@ -337,7 +337,7 @@ UI 框架：标准 WinForms / AntdUI（按实际项目填写）
 AI 应先阅读：
 
 1. `README.md`：项目目标、安装方式和能力概览。
-2. `docs/MCP-API.md`：46 个工具的当前输入/输出契约。
+2. `docs/MCP-API.zh-CN.md`：46 个工具的当前输入/输出契约。
 3. 本文：跨电脑配置、权限边界和验证顺序。
 4. 业务项目的 `.csproj`、`Program.cs`、Form 的 `.Designer.cs` 和代码后台。
 
@@ -474,7 +474,7 @@ Designer 文件来掩盖加载错误。
 
 1. 把 `.mcp.json` 或 `.vscode/mcp.json` 放在项目仓库，路径尽量使用环境变量或团队约定的
   绝对路径，不要提交个人用户名目录。
-2. 正式团队固定 NPM/ZIP 版本；升级前阅读 [MCP API 冻结文档](MCP-API.md) 并重新跑一次
+2. 正式团队固定 NPM/ZIP 版本；升级前阅读 [MCP API 冻结文档](MCP-API.zh-CN.md) 并重新跑一次
   启动、UIA、渲染和截图验证。
 3. 生产环境保持 `TELEMETRY_OPTOUT=true`，仅在明确批准后启用遥测。
 4. 只给 AI 访问它确实需要的业务项目目录；MCP 配置本身不应包含密码、Token 或连接字符串。
@@ -523,8 +523,9 @@ AI 输出验证结果和剩余限制
 
 ## 13. 相关文档
 
-- [MCP API 冻结文档](MCP-API.md)
-- [RuntimeBridge 迁移指南](release/Migration-Guide.md)
-- [兼容性矩阵](release/Compatibility-Matrix.md)
-- [发布架构](architecture/Release-Architecture.md)
-- [项目 README](../README.md)
+- [中文文档索引](Chinese-Documentation-Index.md)
+- [MCP API 冻结文档](MCP-API.zh-CN.md)
+- [RuntimeBridge 迁移指南](release/Migration-Guide.zh-CN.md)
+- [兼容性矩阵](release/Compatibility-Matrix.zh-CN.md)
+- [发布架构](architecture/Release-Architecture.zh-CN.md)
+- [中文主页](../README.zh-CN.md)
