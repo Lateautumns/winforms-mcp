@@ -1,5 +1,7 @@
 # WinForms MCP 中文配置与 AI 使用指南
 
+[返回中文主页](../README.zh-CN.md) · [English README](../README.md)
+
 本文面向需要在另一台 Windows 电脑上安装、配置和使用 WinForms MCP 的开发者，
 也可以直接提供给 Claude Code、Cursor、Cline、VS Code MCP 或其他兼容 MCP 的 AI
 编程工具阅读。
