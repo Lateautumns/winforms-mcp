@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 11 - RuntimeBridge IPC hardening is green in PR #6 and the first real UIA Worker isolation slice has completed its local Gate on `feature/v18-hardening`; commit and push are next.
+Stage 12 - Stable release preparation has completed its local and Windows Core CI Gates on `feature/v20-release-prep`; Draft PR #8 is ready for human review.
 
 ## Implemented
 
@@ -340,3 +340,23 @@ None.
 - Release preparation is local-only: package manifests, compatibility documentation, migration/release notes, and reproducible local package/ZIP checks are allowed.
 - No NuGet push, NPM publish, GitHub release, or modification of `main` is permitted during unattended execution.
 - Compatibility claims will distinguish locally verified targets from Windows/OS combinations not available in the current environment.
+
+## Stage 12 Gate Evidence
+
+- Gate timestamp: 2026-08-19 21:40:12 +08:00.
+- Branch: `feature/v20-release-prep`, based on `a35e7db` / `feature/v19-runtime-identity`.
+- Added package metadata and README inclusion for RuntimeContracts and RuntimeBridge.
+- Added local-only `scripts/package-local.ps1` checks for three NuGet packages, one NPM tarball, and the standalone ZIP with all RendererHost targets.
+- Added compatibility matrix, migration guide, release notes draft, release architecture, README release-preparation guidance, and `1.5.12-beta` changelog entry.
+- `dotnet format Rhombus.WinFormsMcp.sln`: passed.
+- `dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes`: passed.
+- `dotnet restore Rhombus.WinFormsMcp.sln`: passed.
+- `dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false`: passed with 0 warnings and 0 errors.
+- `dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false`: passed for net48, netcoreapp3.1, and net8.0-windows with 0 warnings and 0 errors.
+- Full Release test run: 406 total, 362 passed, 44 skipped, 0 failed.
+- `scripts/package-local.ps1 -Configuration Release`: passed; all expected NuGet, NPM, and ZIP artifact assertions succeeded without publishing.
+- AntdUI reference repository remained read-only; no `.codegraph` artifacts or build outputs were added to Git.
+- Commit: `edce1dd` (`chore: prepare local 1.5.12-beta release`).
+- Draft PR: #8, `feature/v20-release-prep` -> `feature/v19-runtime-identity`.
+- Windows Core CI: green for the pushed head `24a84ec` (push run `32259744121`, pull-request run `32259755640`).
+- External Claude Code Review run `32259755616` failed with 401 because the Claude Code GitHub App is not installed on this fork; no code change was made for this external-service failure.

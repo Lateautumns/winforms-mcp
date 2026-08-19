@@ -10,7 +10,19 @@
     <RootNamespace>Rhombus.WinFormsMcp.RuntimeBridge</RootNamespace>
     <AssemblyName>Rhombus.WinFormsMcp.RuntimeBridge</AssemblyName>
     <Description>Read-only in-process WinForms runtime inspection bridge.</Description>
+    <PackageId>Rhombus.WinFormsMcp.RuntimeBridge</PackageId>
+    <Authors>butler.software</Authors>
+    <Company>butler.software</Company>
+    <PackageProjectUrl>https://github.com/Lateautumns/winforms-mcp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Lateautumns/winforms-mcp.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>winforms;mcp;runtime;inspection;named-pipe</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Rhombus.WinFormsMcp.Tests" />
   </ItemGroup>

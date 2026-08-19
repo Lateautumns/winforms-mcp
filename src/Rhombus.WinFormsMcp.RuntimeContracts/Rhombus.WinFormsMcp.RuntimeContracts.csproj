@@ -8,7 +8,19 @@
     <RootNamespace>Rhombus.WinFormsMcp.RuntimeContracts</RootNamespace>
     <AssemblyName>Rhombus.WinFormsMcp.RuntimeContracts</AssemblyName>
     <Description>Versioned, UI-framework-neutral contracts for the WinForms MCP runtime bridge.</Description>
+    <PackageId>Rhombus.WinFormsMcp.RuntimeContracts</PackageId>
+    <Authors>butler.software</Authors>
+    <Company>butler.software</Company>
+    <PackageProjectUrl>https://github.com/Lateautumns/winforms-mcp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Lateautumns/winforms-mcp.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>winforms;mcp;runtime;contracts;named-pipe</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
