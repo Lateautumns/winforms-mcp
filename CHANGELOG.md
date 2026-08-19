@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.12-beta] - Unreleased
+
+### Added
+
+- Read-only RuntimeBridge identity correlation scoped by process and bridge instance.
+- Release-preparation documentation for compatibility, migration, architecture, and local packaging.
+
+### Changed
+
+- Runtime and diagnostics references can carry an optional `bridgeInstanceId` to reject stale application references while preserving legacy clients.
+- Local packaging now verifies the server, RuntimeContracts, RuntimeBridge, RendererHost, and NPM distribution artifacts without publishing them.
+
+### Compatibility
+
+- Existing MCP tool names and required parameters remain unchanged.
+- RuntimeBridge targets .NET Framework 4.8 and .NET 8 Windows; RendererHost remains multi-targeted for net48, netcoreapp3.1, and net8.0-windows.
+
+### Release status
+
+- This is an unreleased preparation draft. No NuGet push, NPM publish, GitHub Release, or `main` modification is performed.
+
 ## [1.0.0] - 2024-10-21
 
 ### Added

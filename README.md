@@ -131,6 +131,12 @@ It never serializes `Control`, `Form`, or `Binding` instances across the process
 and all WinForms reads are marshalled to the UI thread. Without a bridge, the existing
 UIA tools continue to work unchanged.
 
+Managed IDs are scoped by `processId` and `bridgeInstanceId`. Keep the instance ID
+returned by `runtime_status` or a managed snapshot when making follow-up runtime or
+diagnostics calls; the optional `bridgeInstanceId` input rejects references from a
+previous application/bridge instance. Omitting it preserves compatibility with older
+clients.
+
 Runtime diagnostics are bounded and read-only. Layout, DPI, binding, and accessibility
 checks return structured evidence; screenshot comparison accepts exactly one path or
 base64 PNG for each side; event tracing uses expiring ring-buffer sessions and only
@@ -202,6 +208,14 @@ previews.
 DTOs. `Rhombus.WinFormsMcp.RuntimeBridge` targets `net48` and `net8.0-windows`, so it can
 be referenced by the two most common WinForms application families without taking a
 dependency on FlaUI or the MCP Server.
+
+## Local release preparation
+
+After a Release build, run `scripts/package-local.ps1` on Windows to create local
+NuGet packages for the server/contracts/bridge, an NPM tarball, and a standalone
+ZIP containing all RendererHost targets. This command never publishes packages,
+creates a GitHub release, or modifies `main`. See the [compatibility matrix](docs/release/Compatibility-Matrix.md),
+[migration guide](docs/release/Migration-Guide.md), and [release architecture](docs/architecture/Release-Architecture.md).
 
 ## Documentation
 
