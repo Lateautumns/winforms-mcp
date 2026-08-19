@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 8 - AI Diagnostics implementation complete; local Gate green and Windows Core CI pending on the implementation commit.
+Stage 8 - AI Diagnostics complete; local Gate and Windows Core CI are green.
 
 ## Implemented
 
@@ -135,18 +135,21 @@ Stage 8 - AI Diagnostics implementation complete; local Gate green and Windows C
 - Stage 6 external Claude Code Review: failed because the Claude Code GitHub App is not installed on the fork; no code changes were made for this external-service failure.
 - Stage 7 Core CI: green for commit f3bf321 (push run 32221982955 and PR run 32221986299).
 - Stage 7 external Claude Code Review: failed with 401 because the Claude Code GitHub App is not installed on this fork; no code changes were made for this external-service failure.
+- Stage 8 Core CI: green for commit cd7ef0e (push run 32236157363 and PR run 32236160606).
+- Stage 8 external Claude Code Review run 32236160617 failed with 401 because the GitHub App is not installed on this fork; no code changes were made for this external-service failure.
 
 ## Git
 
 - Base Branch: feature/v14-antdui-provider.
 - Current Branch: feature/v15-diagnostics.
 - Stage 7 Commit: f3bf321 `feat: support render theme and dpi profiles`.
-- Current Head before the Stage 8 implementation commit: 8948019 `docs: start stage 8 diagnostics`.
+- Stage 8 Commit: cd7ef0e `feat: add WinForms runtime diagnostics`.
+- Current Head before the Stage 8 CI status commit: cd7ef0e.
 - Stage 4 Commit: b7ac9f2 feat: add AntdUI basic control inspection.
 - Stage 5 Commit: 700adc8 feat: add AntdUI complex semantic inspection.
 - Stage 6 Commit: cbc300f `feat: support AntdUI layered windows`.
 - Draft PR: #3 targets feature/v14-antdui-provider.
-- Working Tree: reviewed Stage 8 implementation ready for its feature commit.
+- Working Tree: clean before recording the Stage 8 CI status.
 
 ## Risks
 
@@ -161,7 +164,6 @@ Stage 8 - AI Diagnostics implementation complete; local Gate green and Windows C
 
 ## Next
 
-- Complete the Stage 8 feature commit, push it, and require Windows Core CI green.
 - Begin Stage 9 on a new stacked branch by adding a bounded incremental SourceIndex for source mapping.
 
 ## Stage 9 Scope
@@ -223,4 +225,5 @@ None.
 - `dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false`: passed with 0 warnings and 0 errors.
 - `dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false`: passed for net48, netcoreapp3.1, and net8.0-windows with 0 warnings and 0 errors.
 - Full elevated Release test run: 379 total, 335 passed, 44 skipped, 0 failed.
-- Final Gate results and Windows Core CI run IDs are recorded after the implementation commit is pushed.
+- Windows Core CI passed for feature commit cd7ef0e: push run 32236157363 and pull_request run 32236160606.
+- External Claude Code Review run 32236160617 failed with the known missing-GitHub-App 401 and is not a Core CI failure.
