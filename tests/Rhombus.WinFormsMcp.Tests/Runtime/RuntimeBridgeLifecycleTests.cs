@@ -215,6 +215,27 @@ public sealed class RuntimeBridgeLifecycleTests {
 
     [Test]
     [Timeout(10000)]
+    public async Task RuntimeBridgeHost_HandlesImmediateSequentialRequests() {
+        var pipeName = CreatePipeName();
+        var host = new RuntimeBridgeHost(new RuntimeBridgeOptions { PipeName = pipeName }, null);
+        host.Start();
+
+        try {
+            var first = await SendRequestAsync(pipeName, RuntimeBridgeProtocol.GetStatus);
+            var second = await SendRequestAsync(pipeName, RuntimeBridgeProtocol.GetStatus);
+
+            Assert.Multiple(() => {
+                Assert.That(first.Success, Is.True);
+                Assert.That(second.Success, Is.True);
+            });
+        }
+        finally {
+            await host.StopAsync();
+        }
+    }
+
+    [Test]
+    [Timeout(10000)]
     public async Task McpRuntimeBridge_StopIsRepeatableAndAllowsRestartOnSamePipe() {
         var pipeName = CreatePipeName();
         try {

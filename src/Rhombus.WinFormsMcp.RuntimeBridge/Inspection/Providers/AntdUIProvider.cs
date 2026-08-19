@@ -1,4 +1,5 @@
 using System.Collections;
+using System.ComponentModel;
 using System.Reflection;
 using System.Windows.Forms;
 
@@ -6,8 +7,9 @@ using Rhombus.WinFormsMcp.RuntimeContracts;
 
 namespace Rhombus.WinFormsMcp.RuntimeBridge.Inspection.Providers;
 
-internal sealed class AntdUIProvider : IControlProvider {
+internal sealed partial class AntdUIProvider : IControlProvider {
     private const string NamespacePrefix = "AntdUI.";
+    private const int MaximumNonIndexedPageOffset = 10_000;
 
     private static readonly IReadOnlyDictionary<string, ControlProfile> Profiles =
         new Dictionary<string, ControlProfile>(StringComparer.Ordinal) {
@@ -108,7 +110,47 @@ internal sealed class AntdUIProvider : IControlProvider {
                     Read.Property("MaxCount", "maxCount"),
                     Read.Property("AutoPrefixSvg", "autoPrefixSvg")
                 ],
-                includeItems: true)
+                includeItems: true),
+            ["AntdUI.Tabs"] = new(
+                "tabs",
+                ["select-tab"],
+                [
+                    Read.State("SelectedIndex", "selectedIndex")
+                ],
+                [
+                    Read.Property("Pages", "pages")
+                ]),
+            ["AntdUI.Tree"] = new(
+                "tree",
+                ["expand-collapse", "select"],
+                [
+                    Read.State("Multiple", "multiple")
+                ],
+                [
+                    Read.Property("VirtualMode", "virtualMode"),
+                    Read.Property("Checkable", "checkable")
+                ]),
+            ["AntdUI.Table"] = new(
+                "table",
+                ["table-navigation"],
+                [
+                    Read.State("SelectedIndex", "selectedIndex")
+                ],
+                [
+                    Read.Property("VirtualMode", "virtualMode"),
+                    Read.Property("VisibleHeader", "visibleHeader"),
+                    Read.Property("FixedHeader", "fixedHeader"),
+                    Read.Property("AutoSizeColumnsMode", "autoSizeColumnsMode")
+                ]),
+            ["AntdUI.Menu"] = new(
+                "menu",
+                ["menu-navigation"],
+                [],
+                [
+                    Read.Property("Mode", "mode"),
+                    Read.Property("Collapsed", "collapsed"),
+                    Read.Property("Unique", "unique")
+                ])
         };
 
     private static readonly Read[] CommonReads = [
@@ -134,6 +176,9 @@ internal sealed class AntdUIProvider : IControlProvider {
             ProviderVersion = control.GetType().Assembly.GetName().Version?.ToString(),
             Capabilities = [
                 "antduiBasicSemantics",
+                "antduiComplexSemantics",
+                "semanticPaging",
+                "tableRowScopes",
                 "identity",
                 "state",
                 "properties",
@@ -164,8 +209,383 @@ internal sealed class AntdUIProvider : IControlProvider {
 
         if (profile.IncludeItems)
             AddSelectItems(semantic, control, context);
+        AddComplexSemanticChildren(semantic, control, context);
 
         return semantic;
+    }
+
+    private static void AddComplexSemanticChildren(
+        ControlSemanticSnapshot semantic,
+        Control control,
+        ControlProviderContext context) {
+        switch (GetRuntimeType(control)) {
+            case "AntdUI.Tabs":
+                AddTabsPages(semantic, control, context);
+                break;
+            case "AntdUI.Tree":
+                AddHierarchicalItems(
+                    semantic,
+                    control,
+                    context,
+                    collectionProperty: "Items",
+                    childCollectionProperty: "Sub",
+                    itemKind: "tree-node",
+                    selectedItemProperty: "SelectItem");
+                break;
+            case "AntdUI.Table":
+                AddTableSemantic(semantic, control, context);
+                break;
+            case "AntdUI.Menu":
+                AddHierarchicalItems(
+                    semantic,
+                    control,
+                    context,
+                    collectionProperty: "Items",
+                    childCollectionProperty: "Sub",
+                    itemKind: "menu-item",
+                    selectedItemProperty: null);
+                break;
+        }
+    }
+
+    private static void AddTabsPages(
+        ControlSemanticSnapshot semantic,
+        Control control,
+        ControlProviderContext context) {
+        if (!TryReadEnumerableProperty(control, "Pages", semantic, out var pages))
+            return;
+
+        var selectedIndex = TryReadIntProperty(control, "SelectedIndex");
+        var count = TryGetCollectionCount(pages);
+        if (count.HasValue) {
+            semantic.ChildCount = count.Value;
+            semantic.Properties["pageCount"] = context.ToJsonValue(count.Value);
+        }
+
+        var pageResult = ReadCollectionPage(pages, context.Start, context.Count, context.MaxNodes);
+        AddCollectionPagingMetadata(semantic, context, pageResult, count);
+        foreach (var page in pageResult.Items) {
+
+            var node = new SemanticNodeSnapshot {
+                Kind = "tab-page",
+                Name = page.Value is null ? null : TryReadStringProperty(page.Value, "Name"),
+                Text = page.Value is null ? null : TryReadStringProperty(page.Value, "Text"),
+                Value = page.Value is null ? null : TryReadStringProperty(page.Value, "Name"),
+                Index = page.Index,
+                ControlId = page.Value is Control pageControl ? context.GetControlId(pageControl) : null,
+                ChildCount = page.Value is Control pageControlForChildren
+                    ? TryGet(() => pageControlForChildren.Controls.Count, 0)
+                    : 0
+            };
+            node.State["selected"] = context.ToJsonValue(selectedIndex == page.Index);
+            AddNodeState(node, page.Value, context, "Enabled", "enabled");
+            AddNodeState(node, page.Value, context, "Visible", "visible");
+            AddNodeState(node, page.Value, context, "ReadOnly", "readOnly");
+            AddNodeProperty(node, page.Value, context, "IconSvg", "iconSvg");
+            AddNodeProperty(node, page.Value, context, "Badge", "badge");
+            AddRuntimeType(node, page.Value, context);
+            semantic.Children.Add(node);
+        }
+    }
+
+    private static void AddHierarchicalItems(
+        ControlSemanticSnapshot semantic,
+        Control control,
+        ControlProviderContext context,
+        string collectionProperty,
+        string childCollectionProperty,
+        string itemKind,
+        string? selectedItemProperty) {
+        if (!TryReadEnumerableProperty(control, collectionProperty, semantic, out var items))
+            return;
+
+        var selectedItem = selectedItemProperty is null
+            ? null
+            : TryReadProperty(control, selectedItemProperty, out var value, out _) ? value : null;
+        var remainingNodes = context.MaxNodes;
+        var count = TryGetCollectionCount(items);
+        if (count.HasValue)
+            semantic.ChildCount = count.Value;
+
+        var pageResult = ReadCollectionPage(items, context.Start, context.Count, context.MaxNodes);
+        AddCollectionPagingMetadata(semantic, context, pageResult, count);
+        foreach (var item in pageResult.Items) {
+            if (remainingNodes <= 0) {
+                semantic.Truncated = true;
+                break;
+            }
+
+            var node = BuildHierarchicalItem(
+                item.Value,
+                item.Index,
+                context,
+                itemKind,
+                childCollectionProperty,
+                selectedItem,
+                depth: 0,
+                ref remainingNodes);
+            if (node.Truncated)
+                semantic.Truncated = true;
+            semantic.Children.Add(node);
+        }
+    }
+
+    private static SemanticNodeSnapshot BuildHierarchicalItem(
+        object? item,
+        int index,
+        ControlProviderContext context,
+        string itemKind,
+        string childCollectionProperty,
+        object? selectedItem,
+        int depth,
+        ref int remainingNodes) {
+        remainingNodes--;
+        var node = new SemanticNodeSnapshot {
+            Kind = itemKind,
+            Index = index
+        };
+
+        if (item is null)
+            return node;
+
+        node.Name = TryReadStringProperty(item, "Name");
+        node.Text = TryReadStringProperty(item, "Text") ?? ToSafeDisplayString(item);
+        node.Value = TryReadStringProperty(item, "ID") ??
+            TryReadStringProperty(item, "Name") ??
+            TryReadStringProperty(item, "Tag");
+        AddRuntimeType(node, item, context);
+        AddNodeProperty(node, item, context, "ID", "id");
+        AddNodeProperty(node, item, context, "SubText", "subText");
+        AddNodeProperty(node, item, context, "SubTitle", "subTitle");
+        AddNodeProperty(node, item, context, "IconSvg", "iconSvg");
+        AddNodeState(node, item, context, "Enabled", "enabled");
+        AddNodeState(node, item, context, "Visible", "visible");
+        AddNodeState(node, item, context, "Checked", "checked");
+        AddNodeState(node, item, context, "CheckState", "checkState");
+        AddNodeState(node, item, context, "Expand", "expanded");
+        AddNodeState(node, item, context, "Loading", "loading");
+        node.State["selected"] = context.ToJsonValue(selectedItem is not null && ReferenceEquals(item, selectedItem));
+
+        if (!TryReadProperty(item, childCollectionProperty, out var children, out _) || children is not IEnumerable enumerable)
+            return node;
+
+        var count = TryGetCollectionCount(children);
+        if (count.HasValue)
+            node.ChildCount = count.Value;
+        if (depth >= context.MaxDepth) {
+            node.Truncated = node.ChildCount > 0;
+            return node;
+        }
+
+        var childIndex = 0;
+        foreach (var child in enumerable) {
+            if (remainingNodes <= 0) {
+                node.Truncated = true;
+                break;
+            }
+
+            var childNode = BuildHierarchicalItem(
+                child,
+                childIndex,
+                context,
+                itemKind,
+                childCollectionProperty,
+                selectedItem,
+                depth + 1,
+                ref remainingNodes);
+            if (childNode.Truncated)
+                node.Truncated = true;
+            node.Children.Add(childNode);
+            childIndex++;
+        }
+
+        return node;
+    }
+
+    private static void AddTableSemantic(
+        ControlSemanticSnapshot semantic,
+        Control control,
+        ControlProviderContext context) {
+        var selectedIndexes = TryReadSelectedIndexes(control);
+        semantic.Metadata["selectedIndexes"] = SerializeSafe(selectedIndexes.OrderBy(index => index).ToArray());
+        AddMetadata(semantic, context, "selectionIndexBase", 1);
+        AddMetadata(semantic, context, "startRow", context.StartRow);
+
+        var remainingNodes = context.MaxNodes;
+        var columnsNode = BuildTableColumnsNode(control, context, ref remainingNodes, out var columns);
+        if (columnsNode.Truncated)
+            semantic.Truncated = true;
+        semantic.Children.Add(columnsNode);
+
+        var scope = ResolveTableScope(control, context.RowScope);
+        AddTableScopeMetadata(semantic, context, scope);
+        AddTableStateMetadata(semantic, context, columns, scope);
+        var rowsNode = BuildTableRowsNode(context, columns, selectedIndexes, scope, ref remainingNodes);
+        if (rowsNode.Truncated)
+            semantic.Truncated = true;
+        semantic.Children.Add(rowsNode);
+        semantic.ChildCount = semantic.Children.Count;
+    }
+
+    private static SemanticNodeSnapshot BuildTableColumnsNode(
+        Control control,
+        ControlProviderContext context,
+        ref int remainingNodes,
+        out List<TableColumnInfo> columnInfos) {
+        columnInfos = new List<TableColumnInfo>();
+        var node = new SemanticNodeSnapshot {
+            Kind = "columns"
+        };
+
+        if (!TryReadProperty(control, "Columns", out var columns, out var error)) {
+            if (!string.IsNullOrEmpty(error))
+                node.Properties["error"] = context.ToJsonValue(error);
+            return node;
+        }
+
+        var count = TryGetCollectionCount(columns!);
+        if (count.HasValue)
+            node.ChildCount = count.Value;
+        if (columns is not IEnumerable enumerable)
+            return node;
+
+        var index = 0;
+        foreach (var column in enumerable) {
+            if (remainingNodes <= 0) {
+                node.Truncated = true;
+                break;
+            }
+
+            remainingNodes--;
+            var columnInfo = BuildTableColumnNode(column, index, context);
+            columnInfos.Add(columnInfo);
+            node.Children.Add(columnInfo.Node);
+            index++;
+        }
+
+        if (count.HasValue && index < count.Value)
+            node.Truncated = true;
+
+        return node;
+    }
+
+    private static TableColumnInfo BuildTableColumnNode(
+        object? column,
+        int index,
+        ControlProviderContext context) {
+        var node = new SemanticNodeSnapshot {
+            Kind = "column",
+            Index = index
+        };
+        if (column is null)
+            return new TableColumnInfo(column, index, string.Empty, null, true, node);
+
+        var key = TryReadStringProperty(column, "Key");
+        var title = TryReadStringProperty(column, "Title") ?? key;
+        var visible = TryReadBooleanProperty(column, "Visible") ?? true;
+        node.Name = key;
+        node.Text = title;
+        node.Value = key;
+        AddRuntimeType(node, column, context);
+        AddNodeProperty(node, column, context, "Key", "key");
+        AddNodeProperty(node, column, context, "Title", "title");
+        AddNodeProperty(node, column, context, "Width", "width");
+        AddNodeProperty(node, column, context, "Align", "align");
+        AddNodeProperty(node, column, context, "ColAlign", "headerAlign");
+        AddNodeProperty(node, column, context, "VisibleIndex", "visibleIndex");
+        AddNodeProperty(node, column, context, "ReadOnly", "readOnly");
+        AddNodeProperty(node, column, context, "Editable", "editable");
+        AddNodeProperty(node, column, context, "DisplayFormat", "displayFormat");
+        AddNodeProperty(node, column, context, "SortOrder", "sortOrder");
+        AddNodeProperty(node, column, context, "SortMode", "sortMode");
+        AddNodeProperty(node, column, context, "HasFilter", "hasFilter");
+        AddNodeProperty(node, column, context, "KeyTree", "treeKey");
+        AddNodeState(node, column, context, "Visible", "visible");
+        AddColumnFilterMetadata(node, column, context);
+        if (TryReadProperty(column, "Render", out var render, out _))
+            node.Properties["hasRender"] = context.ToJsonValue(render is Delegate);
+        return new TableColumnInfo(column, index, key ?? string.Empty, title, visible, node);
+    }
+
+    private static SemanticNodeSnapshot BuildTableRowsNode(
+        ControlProviderContext context,
+        IReadOnlyList<TableColumnInfo> columns,
+        ISet<int> selectedIndexes,
+        TableScopeResult scope,
+        ref int remainingNodes) {
+        var node = new SemanticNodeSnapshot {
+            Kind = "rows",
+            ChildCount = scope.TotalCount ?? 0
+        };
+        node.Properties["scope"] = context.ToJsonValue(scope.EffectiveScope);
+        node.Properties["startRow"] = context.ToJsonValue(context.StartRow);
+        var rowLimit = Math.Min(context.RowCount ?? DefaultTableRowCount, context.MaxNodes);
+        node.Properties["rowLimit"] = context.ToJsonValue(rowLimit);
+
+        var page = ReadTableRowPage(scope, context.StartRow, rowLimit);
+        if (page.OffsetLimited) {
+            node.Properties["pagingWarning"] = context.ToJsonValue(
+                "The requested row offset exceeds the bounded non-indexed collection scan limit.");
+            node.Truncated = true;
+        }
+        foreach (var row in page.Items) {
+            if (remainingNodes <= 0) {
+                node.Truncated = true;
+                break;
+            }
+
+            remainingNodes--;
+            var rowNode = BuildTableRowNode(row, columns, selectedIndexes, context, ref remainingNodes);
+            if (rowNode.Truncated)
+                node.Truncated = true;
+            node.Children.Add(rowNode);
+        }
+
+        if (page.HasMore)
+            node.Truncated = true;
+        if (!scope.TotalCount.HasValue)
+            node.Properties["totalCountKnown"] = context.ToJsonValue(false);
+
+        return node;
+    }
+
+    private static SemanticNodeSnapshot BuildTableRowNode(
+        TableRowInfo row,
+        IReadOnlyList<TableColumnInfo> columns,
+        ISet<int> selectedIndexes,
+        ControlProviderContext context,
+        ref int remainingNodes) {
+        var node = new SemanticNodeSnapshot {
+            Kind = "row",
+            Index = row.SourceIndex,
+            ChildCount = columns.Count
+        };
+        node.State["selected"] = context.ToJsonValue(selectedIndexes.Contains(row.ViewIndex + 1));
+        node.State["enabled"] = context.ToJsonValue(row.Enabled);
+        node.Properties["viewIndex"] = context.ToJsonValue(row.ViewIndex);
+        node.Properties["sourceIndex"] = context.ToJsonValue(row.SourceIndex);
+        node.Properties["scope"] = context.ToJsonValue(row.Scope);
+        if (row.Depth.HasValue)
+            node.Properties["depth"] = context.ToJsonValue(row.Depth.Value);
+        if (row.Expanded.HasValue)
+            node.State["expanded"] = context.ToJsonValue(row.Expanded.Value);
+        AddRuntimeType(node, row.Record, context);
+
+        for (var columnIndex = 0; columnIndex < columns.Count; columnIndex++) {
+            if (remainingNodes <= 0) {
+                node.Truncated = true;
+                break;
+            }
+
+            remainingNodes--;
+            var column = columns[columnIndex];
+            var cell = BuildTableCellNode(row, column, columnIndex, context, ref remainingNodes);
+            if (cell.Truncated)
+                node.Truncated = true;
+            node.Children.Add(cell);
+        }
+
+        return node;
     }
 
     private static void AddSelectItems(
@@ -185,17 +605,74 @@ internal sealed class AntdUIProvider : IControlProvider {
         if (count.HasValue)
             semantic.ChildCount = count.Value;
 
-        var index = 0;
-        foreach (var item in enumerable) {
-            if (index >= context.MaxNodes) {
-                semantic.Truncated = true;
+        var page = ReadCollectionPage(enumerable, context.Start, context.Count, context.MaxNodes);
+        AddCollectionPagingMetadata(semantic, context, page, count);
+        foreach (var item in page.Items)
+            semantic.Children.Add(BuildSelectItem(item.Value, item.Index, context));
+    }
+
+    private static void AddCollectionPagingMetadata(
+        ControlSemanticSnapshot semantic,
+        ControlProviderContext context,
+        CollectionPage page,
+        int? totalCount) {
+        AddMetadata(semantic, context, "start", context.Start);
+        if (context.Count.HasValue)
+            AddMetadata(semantic, context, "count", context.Count.Value);
+        if (totalCount.HasValue)
+            AddMetadata(semantic, context, "totalCount", totalCount.Value);
+        else
+            AddMetadata(semantic, context, "totalCountKnown", false);
+
+        if (page.HasMore || (totalCount.HasValue && context.Start > 0 && totalCount.Value > 0))
+            semantic.Truncated = true;
+        if (page.OffsetLimited)
+            semantic.Errors["paging"] = "The requested offset exceeds the bounded non-indexed collection scan limit.";
+    }
+
+    private static CollectionPage ReadCollectionPage(
+        IEnumerable collection,
+        int start,
+        int? requestedCount,
+        int maximumCount) {
+        var result = new CollectionPage();
+        var limit = Math.Min(Math.Max(0, requestedCount ?? maximumCount), maximumCount);
+        if (limit == 0) {
+            result.HasMore = TryGetCollectionCount(collection) is int totalCount && start < totalCount;
+            return result;
+        }
+
+        if (collection is IList indexed) {
+            var end = Math.Min(indexed.Count, SafeAdd(start, limit));
+            for (var index = start; index < end; index++)
+                result.Items.Add(new IndexedItem(index, indexed[index]));
+            result.HasMore = end < indexed.Count;
+            return result;
+        }
+
+        if (start > MaximumNonIndexedPageOffset) {
+            result.OffsetLimited = true;
+            result.HasMore = TryGetCollectionCount(collection) is int totalCount && start < totalCount;
+            return result;
+        }
+
+        var indexFromEnumeration = 0;
+        foreach (var item in collection) {
+            if (indexFromEnumeration++ < start)
+                continue;
+            if (result.Items.Count >= limit) {
+                result.HasMore = true;
                 break;
             }
 
-            semantic.Children.Add(BuildSelectItem(item, index, context));
-            index++;
+            result.Items.Add(new IndexedItem(indexFromEnumeration - 1, item));
         }
+
+        return result;
     }
+
+    private static int SafeAdd(int left, int right) =>
+        left > int.MaxValue - right ? int.MaxValue : left + right;
 
     private static SemanticNodeSnapshot BuildSelectItem(
         object? item,
@@ -208,7 +685,7 @@ internal sealed class AntdUIProvider : IControlProvider {
             };
         }
 
-        var text = TryReadStringProperty(item, "Text") ?? item.ToString();
+        var text = TryReadStringProperty(item, "Text") ?? ToSafeDisplayString(item);
         var value = TryReadStringProperty(item, "Value") ??
             TryReadStringProperty(item, "Tag") ??
             TryReadStringProperty(item, "SubText");
@@ -236,6 +713,34 @@ internal sealed class AntdUIProvider : IControlProvider {
         string key) {
         if (TryReadProperty(item, propertyName, out var value, out _) && value is not null)
             node.Properties[key] = context.ToJsonValue(SanitizeValue(value));
+    }
+
+    private static void AddNodeProperty(
+        SemanticNodeSnapshot node,
+        object? item,
+        ControlProviderContext context,
+        string propertyName,
+        string key) {
+        if (item is not null && TryReadProperty(item, propertyName, out var value, out _) && value is not null)
+            node.Properties[key] = context.ToJsonValue(SanitizeValue(value));
+    }
+
+    private static void AddNodeState(
+        SemanticNodeSnapshot node,
+        object? item,
+        ControlProviderContext context,
+        string propertyName,
+        string key) {
+        if (item is not null && TryReadProperty(item, propertyName, out var value, out _) && value is not null)
+            node.State[key] = context.ToJsonValue(SanitizeValue(value));
+    }
+
+    private static void AddRuntimeType(
+        SemanticNodeSnapshot node,
+        object? item,
+        ControlProviderContext context) {
+        if (item is not null)
+            node.Properties["runtimeType"] = context.ToJsonValue(item.GetType().FullName);
     }
 
     private static void AddRead(
@@ -313,6 +818,83 @@ internal sealed class AntdUIProvider : IControlProvider {
         return TryReadProperty(value, "Count", out var count, out _) && count is int typedCount
             ? typedCount
             : null;
+    }
+
+    private static bool TryReadEnumerableProperty(
+        object target,
+        string propertyName,
+        ControlSemanticSnapshot semantic,
+        out IEnumerable enumerable) {
+        enumerable = Array.Empty<object>();
+        if (!TryReadProperty(target, propertyName, out var value, out var error)) {
+            if (!string.IsNullOrEmpty(error))
+                semantic.Errors[propertyName] = error!;
+            return false;
+        }
+
+        if (value is not IEnumerable typed)
+            return false;
+        enumerable = typed;
+        return true;
+    }
+
+    private static ISet<int> TryReadSelectedIndexes(object target) {
+        var result = new HashSet<int>();
+        if (TryReadProperty(target, "SelectedIndex", out var selectedIndex, out _) && selectedIndex is int single)
+            result.Add(single);
+        if (TryReadProperty(target, "SelectedIndexs", out var selectedIndexes, out _) && selectedIndexes is IEnumerable enumerable) {
+            foreach (var value in enumerable) {
+                if (value is int intValue)
+                    result.Add(intValue);
+            }
+        }
+
+        return result;
+    }
+
+    private static IEnumerable<object?> EnumerateRows(object? dataSource) {
+        if (dataSource is null)
+            yield break;
+        if (dataSource is BindingSource bindingSource) {
+            foreach (var row in EnumerateRows(bindingSource.DataSource))
+                yield return row;
+            yield break;
+        }
+        if (dataSource is IDictionary dictionary) {
+            foreach (DictionaryEntry entry in dictionary)
+                yield return entry;
+            yield break;
+        }
+        if (dataSource is IEnumerable enumerable && dataSource is not string) {
+            foreach (var row in enumerable)
+                yield return row;
+            yield break;
+        }
+
+        yield return dataSource;
+    }
+
+    private static object? ReadRowValue(object? row, string key) {
+        if (row is null || string.IsNullOrWhiteSpace(key))
+            return null;
+        if (row is DictionaryEntry dictionaryEntry) {
+            if (string.Equals(Convert.ToString(dictionaryEntry.Key, System.Globalization.CultureInfo.InvariantCulture), key, StringComparison.Ordinal))
+                return dictionaryEntry.Value;
+            row = dictionaryEntry.Value;
+        }
+        if (row is null)
+            return null;
+        if (row is IDictionary dictionary && dictionary.Contains(key))
+            return dictionary[key];
+
+        var properties = TypeDescriptor.GetProperties(row);
+        var descriptor = properties.Find(key, ignoreCase: false) ?? properties.Find(key, ignoreCase: true);
+        try {
+            return descriptor?.GetValue(row);
+        }
+        catch {
+            return null;
+        }
     }
 
     private static void AddState(
@@ -410,5 +992,24 @@ internal sealed class AntdUIProvider : IControlProvider {
         public bool IncludeItems { get; }
 
         public IEnumerable<Read> Reads => StateReads.Concat(PropertyReads);
+    }
+
+    private sealed class CollectionPage {
+        public List<IndexedItem> Items { get; } = new();
+
+        public bool HasMore { get; set; }
+
+        public bool OffsetLimited { get; set; }
+    }
+
+    private sealed class IndexedItem {
+        public IndexedItem(int index, object? value) {
+            Index = index;
+            Value = value;
+        }
+
+        public int Index { get; }
+
+        public object? Value { get; }
     }
 }

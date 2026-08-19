@@ -97,7 +97,14 @@ internal static class ToolDefinitionCatalog {
         Define(ToolNames.InspectControl, "Inspect one managed WinForms control's identity, state, safe properties, layout, and optional provider semantics.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID")),
             ("sections", Array("identity, state, properties, layout, bindings, provider, or semantic", "string")),
-            ("includeProperties", Array("Additional safe property names to read", "string"))), "pid", "controlId"),
+            ("includeProperties", Array("Additional safe property names to read", "string")),
+            ("maxDepth", Integer("Maximum provider semantic hierarchy depth")),
+            ("maxNodes", Integer("Maximum provider semantic nodes")),
+            ("start", Integer("Zero-based offset for top-level semantic collections")),
+            ("count", Integer("Maximum top-level semantic collection items")),
+            ("startRow", Integer("Zero-based AntdUI table row offset")),
+            ("rowCount", Integer("Maximum AntdUI table rows")),
+            ("rowScope", String("AntdUI table row scope: data, visible, or rendered"))), "pid", "controlId"),
         Define(ToolNames.GetAncestors, "Return the managed parent chain for a control, nearest parent first.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID"))), "pid", "controlId"),
         Define(ToolNames.GetWindowTree, "Return the bounded HWND tree for a target process, including dialogs and owned/pop-up windows.", Props(

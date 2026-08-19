@@ -176,6 +176,72 @@ public sealed class RuntimeInspectionTests {
                 ["provider", "semantic"],
                 null,
                 CancellationToken.None);
+            var tabs = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdTabs");
+            var tabsInspection = await client.InspectControlAsync(
+                process.Id,
+                tabs.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None);
+            var tabsPagedInspection = await client.InspectControlAsync(
+                process.Id,
+                tabs.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None,
+                new ControlSemanticOptions {
+                    Start = 1,
+                    Count = 1,
+                    MaxNodes = 20
+                });
+            var antTree = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdTree");
+            var treeInspection = await client.InspectControlAsync(
+                process.Id,
+                antTree.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None);
+            var table = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdTable");
+            var tableInspection = await client.InspectControlAsync(
+                process.Id,
+                table.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None);
+            var tablePagedInspection = await client.InspectControlAsync(
+                process.Id,
+                table.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None,
+                new ControlSemanticOptions {
+                    StartRow = 1,
+                    RowCount = 1,
+                    RowScope = "data",
+                    MaxNodes = 80
+                });
+            var tableRenderedInspection = await client.InspectControlAsync(
+                process.Id,
+                table.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None,
+                new ControlSemanticOptions {
+                    RowCount = 2,
+                    RowScope = "rendered",
+                    MaxNodes = 100
+                });
+            var menu = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdMenu");
+            var menuInspection = await client.InspectControlAsync(
+                process.Id,
+                menu.Summary.Identity.ManagedId,
+                ["provider", "semantic"],
+                null,
+                CancellationToken.None);
 
             Assert.Multiple(() => {
                 Assert.That(tree.Truncated, Is.False);
@@ -196,6 +262,32 @@ public sealed class RuntimeInspectionTests {
                 Assert.That(selectInspection.Semantic?.State["selectedIndex"].GetInt32(), Is.EqualTo(1));
                 Assert.That(selectInspection.Semantic?.State["selectedValue"].GetString(), Is.EqualTo("B"));
                 Assert.That(selectInspection.Semantic?.Children, Has.Count.EqualTo(2));
+                Assert.That(tabsInspection.Provider?.SemanticType, Is.EqualTo("tabs"));
+                Assert.That(tabsInspection.Semantic?.Children[1].Text, Is.EqualTo("Devices"));
+                Assert.That(tabsInspection.Semantic?.Children[1].State["selected"].GetBoolean(), Is.True);
+                Assert.That(tabsPagedInspection.Semantic?.Children, Has.Count.EqualTo(1));
+                Assert.That(tabsPagedInspection.Semantic?.Children[0].Index, Is.EqualTo(1));
+                Assert.That(tabsPagedInspection.Semantic?.Truncated, Is.True);
+                Assert.That(treeInspection.Provider?.SemanticType, Is.EqualTo("tree"));
+                Assert.That(treeInspection.Semantic?.Children[0].Text, Is.EqualTo("Devices"));
+                Assert.That(treeInspection.Semantic?.Children[0].Children[0].Text, Is.EqualTo("Router"));
+                Assert.That(treeInspection.Semantic?.Children[0].Children[0].State["selected"].GetBoolean(), Is.True);
+                Assert.That(tableInspection.Provider?.SemanticType, Is.EqualTo("table"));
+                Assert.That(tableInspection.Semantic?.Children.Single(node => node.Kind == "columns").Children, Has.Count.EqualTo(4));
+                Assert.That(tableInspection.Semantic?.Children.Single(node => node.Kind == "rows").Children[0].Children.Single(cell => cell.Name == "DeviceName").Text, Is.EqualTo("Router"));
+                var actionButton = tableInspection.Semantic?.Children
+                    .Single(node => node.Kind == "rows").Children[0].Children
+                    .Single(cell => cell.Name == "Actions").Children.Single(node => node.Kind == "cell-button");
+                Assert.That(actionButton?.Name, Is.EqualTo("open"));
+                Assert.That(tablePagedInspection.Semantic?.Metadata["rowScope"].GetString(), Is.EqualTo("data"));
+                Assert.That(tablePagedInspection.Semantic?.Metadata["startRow"].GetInt32(), Is.EqualTo(1));
+                Assert.That(tablePagedInspection.Semantic?.Children.Single(node => node.Kind == "rows").Children, Has.Count.EqualTo(1));
+                Assert.That(tablePagedInspection.Semantic?.Children.Single(node => node.Kind == "rows").Children[0].Children.Single(cell => cell.Name == "DeviceName").Text, Is.EqualTo("Switch"));
+                Assert.That(tableRenderedInspection.Semantic?.Metadata["requestedRowScope"].GetString(), Is.EqualTo("rendered"));
+                Assert.That(tableRenderedInspection.Semantic?.Metadata, Does.ContainKey("effectiveRowScope"));
+                Assert.That(menuInspection.Provider?.SemanticType, Is.EqualTo("menu"));
+                Assert.That(menuInspection.Semantic?.Children[0].Text, Is.EqualTo("File"));
+                Assert.That(menuInspection.Semantic?.Children[0].Children[1].State["enabled"].GetBoolean(), Is.False);
             });
 
             using var automation = new AutomationHelper(logger: NullLogger<AutomationHelper>.Instance);

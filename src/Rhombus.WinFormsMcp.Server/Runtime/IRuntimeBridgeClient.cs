@@ -17,7 +17,8 @@ internal interface IRuntimeBridgeClient {
         string controlId,
         IReadOnlyCollection<string>? sections,
         IReadOnlyCollection<string>? includeProperties,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        ControlSemanticOptions? semanticOptions = null);
 
     Task<IReadOnlyList<ControlAncestorSnapshot>> GetAncestorsAsync(
         int processId,

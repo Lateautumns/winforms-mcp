@@ -16,6 +16,9 @@ namespace Rhombus.WinFormsMcp.RuntimeBridge.Inspection;
 /// Every public method is called by <see cref="Hosting.UiThreadDispatcher"/>.
 /// </summary>
 internal sealed class ManagedControlInspector {
+    private const int DefaultSemanticMaxDepth = 4;
+    private const int DefaultSemanticMaxNodes = 200;
+
     private static readonly string[] SafeProperties = [
         "Name", "Text", "Enabled", "Visible", "ReadOnly", "TabIndex", "Font", "ForeColor", "BackColor",
         "Dock", "Anchor", "Padding", "Margin", "AutoSize", "MinimumSize", "MaximumSize", "ClientSize",
@@ -45,7 +48,7 @@ internal sealed class ManagedControlInspector {
             },
             Capabilities = [
                 "controlTree", "properties", "layout", "ancestors", "windowTree", "bindings",
-                "uiThreadSnapshots", "providerSemantics"
+                "uiThreadSnapshots", "providerSemantics", "providerSemanticPaging"
             ]
         };
     }
@@ -82,7 +85,8 @@ internal sealed class ManagedControlInspector {
         int processId,
         string controlId,
         IReadOnlyCollection<string>? sections,
-        IReadOnlyCollection<string>? includeProperties) {
+        IReadOnlyCollection<string>? includeProperties,
+        ControlSemanticOptions? semanticOptions = null) {
         EnsureCurrentProcess(processId);
         var control = RequireControl(controlId);
         var requestedSections = sections is { Count: > 0 }
@@ -105,7 +109,7 @@ internal sealed class ManagedControlInspector {
             var provider = _providerRegistry.Resolve(control);
             result.Provider = DescribeProvider(provider, control);
             if (requestedSections.Contains("semantic"))
-                result.Semantic = InspectProvider(provider, control, result.Provider);
+                result.Semantic = InspectProvider(provider, control, result.Provider, semanticOptions);
         }
 
         return result;
@@ -159,15 +163,12 @@ internal sealed class ManagedControlInspector {
     private ControlSemanticSnapshot InspectProvider(
         IControlProvider provider,
         Control control,
-        ControlProviderSnapshot providerSnapshot) {
+        ControlProviderSnapshot providerSnapshot,
+        ControlSemanticOptions? semanticOptions) {
         try {
             return provider.Inspect(
                 control,
-                new ControlProviderContext(
-                    _options.MaxDepth,
-                    _options.MaxNodes,
-                    GetControlId,
-                    ToJsonValue));
+                CreateProviderContext(semanticOptions));
         }
         catch (Exception ex) {
             return new ControlSemanticSnapshot {
@@ -179,6 +180,27 @@ internal sealed class ManagedControlInspector {
                 }
             };
         }
+    }
+
+    private ControlProviderContext CreateProviderContext(ControlSemanticOptions? semanticOptions) {
+        var maxDepth = Clamp(
+            semanticOptions?.MaxDepth ?? DefaultSemanticMaxDepth,
+            0,
+            Math.Max(0, _options.MaxDepth));
+        var maxNodes = Clamp(
+            semanticOptions?.MaxNodes ?? DefaultSemanticMaxNodes,
+            1,
+            Math.Max(1, _options.MaxNodes));
+        return new ControlProviderContext(
+            maxDepth,
+            maxNodes,
+            GetControlId,
+            ToJsonValue,
+            semanticOptions?.Start,
+            semanticOptions?.Count,
+            semanticOptions?.StartRow,
+            semanticOptions?.RowCount,
+            semanticOptions?.RowScope);
     }
 
     private ControlTreeNode BuildTreeNode(

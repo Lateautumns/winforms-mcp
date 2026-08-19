@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 4 - AntdUI basic control inspection complete; Stage 4 Gate passed locally.
+Stage 5 - AntdUI complex semantic tree inspection implemented; local Stage 5 Gate passed, pending the pushed PR #2 Core CI run.
 
 ## Implemented
 
@@ -30,6 +30,10 @@ Stage 4 - AntdUI basic control inspection complete; Stage 4 Gate passed locally.
   - Select.
 - Added Rhombus.WinFormsMcp.AntdUI.TestApp for real RuntimeBridge E2E coverage.
 - Added AntdUI provider unit tests and AntdUI RuntimeBridge integration tests.
+- Added bounded semantic inspection for AntdUI Tabs, Tree, Table, and Menu through the existing inspect_control protocol.
+- Added semantic paging controls for top-level collections and table rows (start/count/startRow/rowCount/rowScope) with truncation metadata.
+- Added AntdUI Table columns, data/visible/rendered row scopes, sort/filter metadata, cell values, and CellButton snapshots.
+- Added complex semantic tree fixtures and end-to-end coverage to the AntdUI TestApp.
 - Hardened UIA correlation fallback for managed controls using automation id, native HWND lookup, bounded HWND traversal, and process matching.
 - Hardened UI text input fallback for controls without a writable ValuePattern by trying writable child value patterns, STA clipboard paste, and paced SendKeys fallback.
 
@@ -44,6 +48,7 @@ Stage 4 - AntdUI basic control inspection complete; Stage 4 Gate passed locally.
 - Protocol remains RuntimeBridge Protocol v1; semantic data is added through optional fields.
 - Provider/semantic snapshots are built on the WinForms UI thread through the existing RuntimeBridge inspector path.
 - Managed RuntimeBridge remains the understanding layer; UIA remains the action layer.
+- Semantic reads remain bounded by RuntimeBridge clamps and provider-level collection/row limits; non-indexed offsets fail closed with explicit metadata.
 
 ## MCP Changes
 
@@ -63,7 +68,7 @@ Stage 4 - AntdUI basic control inspection complete; Stage 4 Gate passed locally.
 
 ## Tests
 
-- Full local test run: 329 total, 285 passed, 44 skipped, 0 failed.
+- Full local test run: 334 total, 290 passed, 44 skipped, 0 failed.
 - New coverage:
   - AntdUI provider detection and fallback behavior.
   - AntdUI Button, Input, InputNumber, Checkbox, Radio, Switch, and Select semantics.
@@ -71,6 +76,10 @@ Stage 4 - AntdUI basic control inspection complete; Stage 4 Gate passed locally.
   - AntdUI RuntimeBridge E2E through the test app.
   - Managed/UIA correlation fallback for AntdUI controls.
   - UIA text input fallback for controls without direct writable ValuePattern.
+  - AntdUI Tabs page selection and bounded paging.
+  - AntdUI Tree/Menu hierarchy, selection/state, depth limits, and paging.
+  - AntdUI Table columns, row scopes, sorting/filter metadata, row paging, and CellButton semantics.
+  - RuntimeBridge semantic-option transport, including null-safe JSON handling.
   - Existing MCP tool surface unchanged at 40 tools.
 
 ## CI
@@ -81,15 +90,16 @@ Stage 4 - AntdUI basic control inspection complete; Stage 4 Gate passed locally.
 - PR #2 Core CI for Stage 4 commit: green on commit b7ac9f2 feat: add AntdUI basic control inspection.
 - PR #2 External CI: Claude Code Review fails for the same missing GitHub App setup.
 - Stage 4 commit CI: green.
+- Stage 5 Core CI: pending the Stage 5 implementation commit push.
 
 ## Git
 
 - Base Branch: feature/v11-foundation-refactor.
 - Current Branch: feature/v14-antdui-provider.
-- Current Head Before Stage 4 Commit: 8d66583 feat: add control provider architecture.
+- Current Head Before Stage 5 Commit: 7869086 docs: record stage 4 ci status.
 - Stage 4 Commit: b7ac9f2 feat: add AntdUI basic control inspection.
 - Draft PR: #2, target feature/v11-foundation-refactor.
-- Working Tree: clean after Stage 4 commit/push; pending CI status documentation commit.
+- Working Tree: Stage 5 implementation changes are ready for the Gate commit.
 
 ## Risks
 
@@ -97,24 +107,29 @@ Stage 4 - AntdUI basic control inspection complete; Stage 4 Gate passed locally.
 - AntdUIProvider intentionally reads only allowlisted public properties and bounded item summaries.
 - Provider implementations must continue avoiding arbitrary runtime execution, setters, or method invocation.
 - Future AntdUI semantic support for Tabs, Tree, Table, and Menu should stay within the existing provider/semantic architecture and avoid new AntdUI-specific MCP tools unless compatibility requires it.
+- Table internals use a narrow allowlist of AntdUI members and return per-scope fallback/diagnostic metadata when version-sensitive caches are unavailable.
 - Local SDK note: this machine lacks the repository-requested .NET 8 SDK, so global.json was temporarily pointed at local .NET 9 for the Gate and restored before commit.
 
 ## Next
 
-- Commit and push this Stage 4 CI status update.
-- Check PR #2 Core CI for the status update commit.
-- If Core CI is green, enter Stage 5 complex AntdUI semantic tree inspection for Tabs, Tree, Table, and Menu.
+- Commit and push the Stage 5 complex semantic inspection changes.
+- Check PR #2 Core CI on Windows for the pushed commit.
+- Do not enter Stage 6 LayeredWindow work until the Stage 5 Core CI is green.
 
 ## Hard Blocker
 
 None.
 
-## Stage 4 Gate Evidence
+## Stage 5 Gate Evidence
 
 - dotnet format Rhombus.WinFormsMcp.sln --verbosity quiet: passed.
 - dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes --verbosity quiet: passed.
 - dotnet restore Rhombus.WinFormsMcp.sln: passed.
 - dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false: passed with 0 warnings and 0 errors.
 - dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false: passed with 0 warnings and 0 errors.
-- dotnet test Rhombus.WinFormsMcp.sln --configuration Release --no-build: 329 total, 285 passed, 44 skipped, 0 failed.
+- dotnet test Rhombus.WinFormsMcp.sln --configuration Release --no-build: 334 total, 290 passed, 44 skipped, 0 failed.
 - GitHub PR #2 CI run 32188783782: passed, build-test-coverage green on Windows.
+- Focused AntdUIProviderTests: 7 passed.
+- Focused RuntimeBridgeLifecycleTests: 14 passed.
+- Focused RuntimeInspectionTests: 4 passed.
+- One non-elevated desktop E2E attempt was denied by Windows SendInput access; the same E2E and the full Release run passed in the elevated test session. This is an environment permission note, not a product test failure.

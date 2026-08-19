@@ -122,6 +122,47 @@ public sealed class ControlProviderSnapshot {
     public List<string> Capabilities { get; set; } = new();
 }
 
+/// <summary>
+/// Optional bounded-read settings for provider-specific semantic inspection.
+/// Values are clamped by the RuntimeBridge before a provider receives them.
+/// </summary>
+public sealed class ControlSemanticOptions {
+    /// <summary>
+    /// Maximum hierarchy depth for semantic children.
+    /// </summary>
+    public int? MaxDepth { get; set; }
+
+    /// <summary>
+    /// Maximum semantic nodes returned by a provider.
+    /// </summary>
+    public int? MaxNodes { get; set; }
+
+    /// <summary>
+    /// Zero-based offset for top-level semantic collections.
+    /// </summary>
+    public int? Start { get; set; }
+
+    /// <summary>
+    /// Maximum top-level semantic collection items to return.
+    /// </summary>
+    public int? Count { get; set; }
+
+    /// <summary>
+    /// Zero-based table row offset.
+    /// </summary>
+    public int? StartRow { get; set; }
+
+    /// <summary>
+    /// Maximum table rows to return.
+    /// </summary>
+    public int? RowCount { get; set; }
+
+    /// <summary>
+    /// Requested AntdUI table scope: data, visible, or rendered.
+    /// </summary>
+    public string? RowScope { get; set; }
+}
+
 public sealed class SemanticNodeSnapshot {
     public string Kind { get; set; } = string.Empty;
     public string? Name { get; set; }
