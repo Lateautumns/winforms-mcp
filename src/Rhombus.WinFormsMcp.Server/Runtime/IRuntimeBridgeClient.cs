@@ -10,7 +10,8 @@ internal interface IRuntimeBridgeClient {
         string? rootId,
         int maxDepth,
         int maxNodes,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null);
 
     Task<ControlInspectionSnapshot> InspectControlAsync(
         int processId,
@@ -18,12 +19,14 @@ internal interface IRuntimeBridgeClient {
         IReadOnlyCollection<string>? sections,
         IReadOnlyCollection<string>? includeProperties,
         CancellationToken cancellationToken,
-        ControlSemanticOptions? semanticOptions = null);
+        ControlSemanticOptions? semanticOptions = null,
+        string? bridgeInstanceId = null);
 
     Task<IReadOnlyList<ControlAncestorSnapshot>> GetAncestorsAsync(
         int processId,
         string controlId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null);
 
     Task<IReadOnlyList<WindowSnapshot>> GetWindowTreeAsync(
         int processId,
@@ -39,12 +42,14 @@ internal interface IRuntimeBridgeClient {
         int processId,
         int maxNodes,
         CancellationToken cancellationToken,
-        int maxItems) => GetWindowTreeAsync(processId, maxNodes, cancellationToken);
+        int maxItems,
+        string? bridgeInstanceId = null) => GetWindowTreeAsync(processId, maxNodes, cancellationToken);
 
     Task<IReadOnlyList<ControlBindingSnapshot>> GetBindingsAsync(
         int processId,
         string controlId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null);
 
     Task<RuntimeDiagnosticsSnapshot> DetectDiagnosticsAsync(
         int processId,
@@ -53,7 +58,8 @@ internal interface IRuntimeBridgeClient {
         int maxDepth,
         int maxNodes,
         int maxDiagnostics,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null);
 
     Task<RuntimeAccessibilitySnapshot> GetAccessibilityAsync(
         int processId,
@@ -61,7 +67,8 @@ internal interface IRuntimeBridgeClient {
         int maxDepth,
         int maxNodes,
         int maxDiagnostics,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null);
 
     Task<RuntimeEventTraceSnapshot> StartEventTraceAsync(
         int processId,
@@ -70,17 +77,20 @@ internal interface IRuntimeBridgeClient {
         int maxEvents,
         int durationMs,
         int maxNodes,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null);
 
     Task<RuntimeEventTraceSnapshot> ReadEventTraceAsync(
         int processId,
         string traceId,
         long afterSequence,
         int maxEvents,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null);
 
     Task<RuntimeEventTraceSnapshot> StopEventTraceAsync(
         int processId,
         string traceId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? bridgeInstanceId = null);
 }

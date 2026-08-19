@@ -28,6 +28,7 @@ internal sealed class ManagedControlInspector : IDisposable {
 
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly RuntimeBridgeOptions _options;
+    private readonly string _bridgeInstanceId;
     private readonly ControlIdentityRegistry _identityRegistry = new();
     private readonly IControlProviderRegistry _providerRegistry;
     private readonly RuntimeEventTraceRegistry _eventTraces;
@@ -35,10 +36,12 @@ internal sealed class ManagedControlInspector : IDisposable {
     public ManagedControlInspector(
         RuntimeBridgeOptions options,
         IControlProviderRegistry? providerRegistry = null,
-        Action<Action>? postToUi = null) {
+        Action<Action>? postToUi = null,
+        string? bridgeInstanceId = null) {
         _options = options;
+        _bridgeInstanceId = bridgeInstanceId ?? Guid.NewGuid().ToString("N");
         _providerRegistry = providerRegistry ?? ControlProviderRegistry.CreateDefault();
-        _eventTraces = new RuntimeEventTraceRegistry(options, postToUi);
+        _eventTraces = new RuntimeEventTraceRegistry(options, postToUi, _bridgeInstanceId);
     }
 
     public BridgeHello GetHello() {
@@ -130,6 +133,8 @@ internal sealed class ManagedControlInspector : IDisposable {
         for (var parent = control.Parent; parent is not null; parent = parent.Parent) {
             result.Add(new ControlAncestorSnapshot {
                 ManagedId = GetControlId(parent),
+                ProcessId = _options.ProcessId,
+                BridgeInstanceId = _bridgeInstanceId,
                 Name = GetControlName(parent),
                 Type = parent.GetType().FullName ?? parent.GetType().Name,
                 ControlPath = GetControlPath(parent),
@@ -148,7 +153,8 @@ internal sealed class ManagedControlInspector : IDisposable {
             processId,
             _identityRegistry,
             GetControlPath,
-            boundedItems);
+            boundedItems,
+            _bridgeInstanceId);
         return Win32WindowInspector.GetProcessWindows(
             processId,
             Clamp(maxNodes, 1, Math.Max(1, _options.MaxNodes)),
@@ -194,7 +200,9 @@ internal sealed class ManagedControlInspector : IDisposable {
             boundedNodes,
             boundedDiagnostics,
             traversalTruncated,
-            cancellationToken);
+            cancellationToken,
+            processId,
+            _bridgeInstanceId);
         result.ScannedNodes = records.Count;
         return result;
     }
@@ -211,6 +219,8 @@ internal sealed class ManagedControlInspector : IDisposable {
         var boundedNodes = Clamp(maxNodes, 1, Math.Max(1, _options.MaxNodes));
         var boundedDiagnostics = Clamp(maxDiagnostics, 1, Math.Max(1, _options.MaxDiagnostics));
         var result = new RuntimeAccessibilitySnapshot {
+            ProcessId = processId,
+            BridgeInstanceId = _bridgeInstanceId,
             MaxNodes = boundedNodes,
             MaxDiagnostics = boundedDiagnostics
         };
@@ -383,6 +393,7 @@ internal sealed class ManagedControlInspector : IDisposable {
             ManagedId = GetControlId(control),
             Hwnd = TryGetHandle(control),
             ProcessId = Process.GetCurrentProcess().Id,
+            BridgeInstanceId = _bridgeInstanceId,
             ControlPath = path,
             Name = GetControlName(control),
             Type = control.GetType().FullName ?? control.GetType().Name,

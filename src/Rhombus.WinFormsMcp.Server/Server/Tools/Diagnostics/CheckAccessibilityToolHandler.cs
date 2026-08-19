@@ -32,7 +32,8 @@ internal sealed class CheckAccessibilityToolHandler : IToolHandler {
                 ToolArguments.GetInt32(arguments, "maxDepth", 6),
                 maxNodes,
                 maxDiagnostics,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                RuntimeToolSupport.GetBridgeInstanceId(arguments)).ConfigureAwait(false);
             foreach (var control in result.Controls) {
                 cancellationToken.ThrowIfCancellationRequested();
                 EnrichUia(control);

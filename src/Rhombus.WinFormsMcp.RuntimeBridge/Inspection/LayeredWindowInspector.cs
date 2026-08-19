@@ -25,7 +25,8 @@ internal static class LayeredWindowInspector {
         int processId,
         ControlIdentityRegistry identityRegistry,
         Func<Control, string> getControlPath,
-        int maxItems) {
+        int maxItems,
+        string bridgeInstanceId) {
         var result = new Dictionary<IntPtr, ProviderWindowMetadataSnapshot>();
         if (processId != Process.GetCurrentProcess().Id || maxItems < 0)
             return result;
@@ -46,7 +47,13 @@ internal static class LayeredWindowInspector {
                 if (!form.IsHandleCreated || form.Handle == IntPtr.Zero)
                     continue;
 
-                var metadata = CreateMetadata(form, identityRegistry, getControlPath, maxItems);
+                var metadata = CreateMetadata(
+                    form,
+                    identityRegistry,
+                    getControlPath,
+                    maxItems,
+                    processId,
+                    bridgeInstanceId);
                 result[form.Handle] = metadata;
             }
             catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or TargetInvocationException) {
@@ -95,7 +102,9 @@ internal static class LayeredWindowInspector {
         Form form,
         ControlIdentityRegistry identityRegistry,
         Func<Control, string> getControlPath,
-        int maxItems) {
+        int maxItems,
+        int processId,
+        string bridgeInstanceId) {
         var type = form.GetType();
         var runtimeType = type.FullName ?? type.Name;
         var semanticType = ClassifySemanticType(runtimeType);
@@ -124,6 +133,8 @@ internal static class LayeredWindowInspector {
         if (owner is not null && !owner.IsDisposed) {
             try {
                 metadata.OwnerControlId = identityRegistry.GetOrCreateId(owner);
+                metadata.OwnerProcessId = processId;
+                metadata.OwnerBridgeInstanceId = bridgeInstanceId;
                 metadata.OwnerControlPath = getControlPath(owner);
                 metadata.OwnerControlName = SafeGet(() => owner.Name, null);
                 metadata.OwnerControlType = owner.GetType().FullName ?? owner.GetType().Name;

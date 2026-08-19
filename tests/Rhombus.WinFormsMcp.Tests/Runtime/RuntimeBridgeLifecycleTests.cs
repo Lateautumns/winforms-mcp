@@ -378,6 +378,44 @@ public sealed class RuntimeBridgeLifecycleTests {
 
     [Test]
     [Timeout(10000)]
+    public async Task RuntimeBridgeClient_RejectsExpectedStaleInstanceBeforeSendingCommand() {
+        var processId = Environment.ProcessId;
+        var pipeName = RuntimeBridgeProtocol.GetPipeName(processId);
+        using var server = new NamedPipeServerStream(
+            pipeName,
+            PipeDirection.InOut,
+            1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+        var commandObserved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var serverTask = ServeInstanceBridgeAsync(server, processId, "current-instance", commandObserved);
+        using var client = new NamedPipeRuntimeBridgeClient(
+            Options.Create(new McpServerOptions {
+                RuntimeBridgeEnabled = true,
+                RuntimeBridgeConnectTimeoutMs = 1000,
+                RuntimeBridgeRequestTimeoutMs = 3000
+            }),
+            NullLogger<NamedPipeRuntimeBridgeClient>.Instance);
+
+        var exception = Assert.ThrowsAsync<RuntimeBridgeException>(async () =>
+            await client.GetControlTreeAsync(
+                processId,
+                null,
+                1,
+                10,
+                CancellationToken.None,
+                bridgeInstanceId: "stale-instance"));
+
+        Assert.Multiple(() => {
+            Assert.That(exception?.Code, Is.EqualTo("bridge_instance_mismatch"));
+            Assert.That(commandObserved.Task.IsCompleted, Is.False);
+        });
+        server.Dispose();
+        await serverTask;
+    }
+
+    [Test]
+    [Timeout(10000)]
     public async Task RuntimeBridgeHost_HandlesImmediateSequentialRequests() {
         var pipeName = CreatePipeName();
         var host = new RuntimeBridgeHost(new RuntimeBridgeOptions { PipeName = pipeName }, null);
@@ -561,6 +599,37 @@ public sealed class RuntimeBridgeLifecycleTests {
             actualRequest.RequestId,
             new ControlTreeSnapshot { MaxDepth = 1, MaxNodes = 10 });
         return actualRequest;
+    }
+
+    private static async Task ServeInstanceBridgeAsync(
+        NamedPipeServerStream server,
+        int processId,
+        string bridgeInstanceId,
+        TaskCompletionSource<bool> commandObserved) {
+        try {
+            await server.WaitForConnectionAsync();
+            using var reader = new StreamReader(server, new UTF8Encoding(false), false, 4096, leaveOpen: true);
+            using var writer = new StreamWriter(server, new UTF8Encoding(false), 4096, leaveOpen: true) {
+                AutoFlush = true
+            };
+
+            var helloRequest = await ReadRequestAsync(reader);
+            await WriteSuccessAsync(
+                writer,
+                helloRequest.RequestId,
+                new BridgeHello {
+                    ProtocolVersion = RuntimeBridgeProtocol.Version,
+                    Process = new RuntimeProcessInfo { ProcessId = processId },
+                    Capabilities = ["controlTree"],
+                    BridgeInstanceId = bridgeInstanceId
+                });
+
+            var possibleCommand = await reader.ReadLineAsync();
+            if (possibleCommand is not null)
+                commandObserved.TrySetResult(true);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) {
+        }
     }
 
     private static async Task<RuntimeRequest> ReadRequestAsync(StreamReader reader) =>

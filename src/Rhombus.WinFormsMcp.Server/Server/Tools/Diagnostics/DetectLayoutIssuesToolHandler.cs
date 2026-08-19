@@ -22,7 +22,8 @@ internal sealed class DetectLayoutIssuesToolHandler : IToolHandler {
                 ToolArguments.GetInt32(arguments, "maxDepth", 6),
                 ToolArguments.GetInt32(arguments, "maxNodes", 500),
                 ToolArguments.GetInt32(arguments, "maxDiagnostics", 200),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                RuntimeToolSupport.GetBridgeInstanceId(arguments)).ConfigureAwait(false);
             return ToolJson.Result(new { success = true, diagnostics = result });
         }
         catch (RuntimeBridgeException ex) {

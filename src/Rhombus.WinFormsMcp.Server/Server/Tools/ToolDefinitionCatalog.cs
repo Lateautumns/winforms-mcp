@@ -96,7 +96,8 @@ internal static class ToolDefinitionCatalog {
             ("pid", Integer("Target process ID"))), "pid"),
         Define(ToolNames.GetControlTree, "Return a bounded managed Control.Controls tree from a target WinForms process.", Props(
             ("pid", Integer("Target process ID")), ("rootId", String("Optional managed control ID")),
-            ("maxDepth", Integer("Maximum tree depth")), ("maxNodes", Integer("Maximum returned nodes"))), "pid"),
+            ("maxDepth", Integer("Maximum tree depth")), ("maxNodes", Integer("Maximum returned nodes")),
+            ("bridgeInstanceId", BridgeInstanceId())), "pid"),
         Define(ToolNames.InspectControl, "Inspect one managed WinForms control's identity, state, safe properties, layout, and optional provider semantics.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID")),
             ("sections", Array("identity, state, properties, layout, bindings, provider, or semantic", "string")),
@@ -107,23 +108,29 @@ internal static class ToolDefinitionCatalog {
             ("count", Integer("Maximum top-level semantic collection items")),
             ("startRow", Integer("Zero-based AntdUI table row offset")),
             ("rowCount", Integer("Maximum AntdUI table rows")),
-            ("rowScope", String("AntdUI table row scope: data, visible, or rendered"))), "pid", "controlId"),
+            ("rowScope", String("AntdUI table row scope: data, visible, or rendered")),
+            ("bridgeInstanceId", BridgeInstanceId())), "pid", "controlId"),
         Define(ToolNames.GetAncestors, "Return the managed parent chain for a control, nearest parent first.", Props(
-            ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID"))), "pid", "controlId"),
+            ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID")),
+            ("bridgeInstanceId", BridgeInstanceId())), "pid", "controlId"),
         Define(ToolNames.GetWindowTree, "Return the bounded HWND tree for a target process, including dialogs and owned/pop-up windows.", Props(
             ("pid", Integer("Target process ID")), ("maxNodes", Integer("Maximum returned HWND nodes")),
-            ("maxItems", Integer("Maximum provider popup items per window"))), "pid"),
+            ("maxItems", Integer("Maximum provider popup items per window")),
+            ("bridgeInstanceId", BridgeInstanceId())), "pid"),
         Define(ToolNames.GetBindings, "Read DataBindings attached to one managed WinForms control.", Props(
-            ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID"))), "pid", "controlId"),
+            ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID")),
+            ("bridgeInstanceId", BridgeInstanceId())), "pid", "controlId"),
         Define(ToolNames.GetSourceMapping, "Map a managed control to its Designer declaration, initialization, and event handler symbols.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID")),
             ("sourceRoot", String("Optional source or solution root to scan")),
-            ("maxFiles", Integer("Maximum source files to scan and index"))), "pid", "controlId"),
+            ("maxFiles", Integer("Maximum source files to scan and index")),
+            ("bridgeInstanceId", BridgeInstanceId())), "pid", "controlId"),
         Define(ToolNames.DetectLayoutIssues, "Detect bounded, evidence-based WinForms layout, DPI, and binding issues.", Props(
             ("pid", Integer("Target process ID")), ("rootId", String("Optional managed root control ID")),
             ("checks", Array("Checks: layout, dpi, or bindings", "string")),
             ("maxDepth", Integer("Maximum managed tree depth")), ("maxNodes", Integer("Maximum controls to scan")),
-            ("maxDiagnostics", Integer("Maximum diagnostics to return"))), "pid"),
+            ("maxDiagnostics", Integer("Maximum diagnostics to return")),
+            ("bridgeInstanceId", BridgeInstanceId())), "pid"),
         Define(ToolNames.CompareScreenshot, "Compare two PNG screenshots with a deterministic bounded pixel diff.", Props(
             ("beforePath", String("Path to the before PNG")), ("afterPath", String("Path to the after PNG")),
             ("beforeBase64", String("Optional before PNG as base64")), ("afterBase64", String("Optional after PNG as base64")),
@@ -132,18 +139,22 @@ internal static class ToolDefinitionCatalog {
         Define(ToolNames.CheckAccessibility, "Check bounded WinForms accessibility metadata and UIA patterns.", Props(
             ("pid", Integer("Target process ID")), ("rootId", String("Optional managed root control ID")),
             ("maxDepth", Integer("Maximum managed tree depth")), ("maxNodes", Integer("Maximum controls to inspect")),
-            ("maxDiagnostics", Integer("Maximum diagnostics to return"))), "pid"),
+            ("maxDiagnostics", Integer("Maximum diagnostics to return")),
+            ("bridgeInstanceId", BridgeInstanceId())), "pid"),
         Define(ToolNames.StartEventTrace, "Start a bounded read-only RuntimeBridge trace for whitelisted WinForms events.", Props(
             ("pid", Integer("Target process ID")), ("rootId", String("Optional managed root control ID")),
             ("events", Array("Whitelisted events such as Click, TextChanged, and FormClosing", "string")),
             ("maxEvents", Integer("Ring buffer capacity")), ("durationMs", Integer("Trace lifetime in milliseconds")),
-            ("maxNodes", Integer("Maximum controls to subscribe"))), "pid"),
+            ("maxNodes", Integer("Maximum controls to subscribe")),
+            ("bridgeInstanceId", BridgeInstanceId())), "pid"),
         Define(ToolNames.ReadEventTrace, "Read new events from a bounded RuntimeBridge event trace.", Props(
             ("pid", Integer("Target process ID")), ("traceId", String("Trace session ID")),
             ("afterSequence", Integer("Return events after this sequence number; use the previous response nextSequence cursor")),
-            ("maxEvents", Integer("Maximum events to return"))), "pid", "traceId"),
+            ("maxEvents", Integer("Maximum events to return")),
+            ("bridgeInstanceId", BridgeInstanceId())), "pid", "traceId"),
         Define(ToolNames.StopEventTrace, "Stop a RuntimeBridge event trace and detach all event handlers.", Props(
-            ("pid", Integer("Target process ID")), ("traceId", String("Trace session ID"))), "pid", "traceId")
+            ("pid", Integer("Target process ID")), ("traceId", String("Trace session ID")),
+            ("bridgeInstanceId", BridgeInstanceId())), "pid", "traceId")
     ];
 
     private static Tool Define(
@@ -172,6 +183,8 @@ internal static class ToolDefinitionCatalog {
     private static object String(string description) => new { type = "string", description };
     private static object Integer(string description) => new { type = "integer", description };
     private static object Boolean(string description) => new { type = "boolean", description };
+    private static object BridgeInstanceId() => String(
+        "Optional RuntimeBridge instance ID from runtime status or a managed identity; rejects stale references after bridge restart");
     private static object Array(string description, string itemType) => new {
         type = "array",
         description,

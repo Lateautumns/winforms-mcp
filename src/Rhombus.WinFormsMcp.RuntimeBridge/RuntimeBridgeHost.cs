@@ -45,7 +45,8 @@ public sealed class RuntimeBridgeHost : IDisposable {
                     CancellationToken.None,
                     TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
                     TaskScheduler.Default);
-            });
+            },
+            bridgeInstanceId: _bridgeInstanceId);
     }
 
     public bool IsRunning {

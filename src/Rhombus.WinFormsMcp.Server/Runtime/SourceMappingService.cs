@@ -279,6 +279,8 @@ internal sealed class SourceMappingService {
             Method = method,
             FullyQualifiedSymbol = fullyQualifiedSymbol,
             RuntimeControlId = control.ManagedId,
+            RuntimeProcessId = control.ProcessId,
+            RuntimeBridgeInstanceId = control.BridgeInstanceId,
             RuntimeControlName = control.Name,
             RuntimeControlType = control.Type
         };

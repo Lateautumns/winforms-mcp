@@ -17,7 +17,11 @@ internal sealed class GetBindingsToolHandler : IToolHandler {
         var pid = RuntimeToolSupport.RequirePid(arguments);
         var controlId = ToolArguments.RequireString(arguments, "controlId");
         try {
-            var bindings = await _client.GetBindingsAsync(pid, controlId, cancellationToken).ConfigureAwait(false);
+            var bindings = await _client.GetBindingsAsync(
+                pid,
+                controlId,
+                cancellationToken,
+                RuntimeToolSupport.GetBridgeInstanceId(arguments)).ConfigureAwait(false);
             return ToolJson.Result(new { success = true, controlId, bindings, bindingCount = bindings.Count });
         }
         catch (RuntimeBridgeException ex) {

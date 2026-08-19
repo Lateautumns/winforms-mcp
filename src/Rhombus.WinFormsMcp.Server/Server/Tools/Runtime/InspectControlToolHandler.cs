@@ -29,7 +29,8 @@ internal sealed class InspectControlToolHandler : IToolHandler {
                 ToolArguments.GetStringArray(arguments, "sections"),
                 ToolArguments.GetStringArray(arguments, "includeProperties"),
                 cancellationToken,
-                semanticOptions).ConfigureAwait(false);
+                semanticOptions,
+                RuntimeToolSupport.GetBridgeInstanceId(arguments)).ConfigureAwait(false);
             snapshot.Correlation = _correlation.TryCorrelate(snapshot.Summary.Identity);
             var result = new Dictionary<string, object?> {
                 ["success"] = true,

@@ -21,7 +21,8 @@ internal sealed class ReadEventTraceToolHandler : IToolHandler {
                 traceId,
                 ToolArguments.GetInt64(arguments, "afterSequence", 0),
                 ToolArguments.GetInt32(arguments, "maxEvents", 200),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                RuntimeToolSupport.GetBridgeInstanceId(arguments)).ConfigureAwait(false);
             return ToolJson.Result(new { success = true, trace = result });
         }
         catch (RuntimeBridgeException ex) {

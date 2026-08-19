@@ -20,7 +20,8 @@ internal sealed class GetWindowTreeToolHandler : IToolHandler {
                 pid,
                 ToolArguments.GetInt32(arguments, "maxNodes", 200),
                 cancellationToken,
-                ToolArguments.GetInt32(arguments, "maxItems", 100)).ConfigureAwait(false);
+                ToolArguments.GetInt32(arguments, "maxItems", 100),
+                RuntimeToolSupport.GetBridgeInstanceId(arguments)).ConfigureAwait(false);
             return ToolJson.Result(new { success = true, windows, windowCount = windows.Count });
         }
         catch (RuntimeBridgeException ex) {

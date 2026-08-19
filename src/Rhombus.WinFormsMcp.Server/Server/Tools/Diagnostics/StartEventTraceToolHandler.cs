@@ -22,7 +22,8 @@ internal sealed class StartEventTraceToolHandler : IToolHandler {
                 ToolArguments.GetInt32(arguments, "maxEvents", 200),
                 ToolArguments.GetInt32(arguments, "durationMs", 60_000),
                 ToolArguments.GetInt32(arguments, "maxNodes", 500),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                RuntimeToolSupport.GetBridgeInstanceId(arguments)).ConfigureAwait(false);
             return ToolJson.Result(new { success = true, trace = result });
         }
         catch (RuntimeBridgeException ex) {

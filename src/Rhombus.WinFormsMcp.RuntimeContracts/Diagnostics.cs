@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Rhombus.WinFormsMcp.RuntimeContracts;
 
@@ -11,6 +12,9 @@ public sealed class DiagnosticSnapshot {
 }
 
 public sealed class RuntimeDiagnosticsSnapshot {
+    public int ProcessId { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BridgeInstanceId { get; set; }
     public List<DiagnosticSnapshot> Diagnostics { get; set; } = new();
     public List<string> Checks { get; set; } = new();
     public int ScannedNodes { get; set; }
@@ -36,6 +40,9 @@ public sealed class AccessibilityControlSnapshot {
 }
 
 public sealed class RuntimeAccessibilitySnapshot {
+    public int ProcessId { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BridgeInstanceId { get; set; }
     public List<AccessibilityControlSnapshot> Controls { get; set; } = new();
     public List<DiagnosticSnapshot> Diagnostics { get; set; } = new();
     public int ScannedNodes { get; set; }
@@ -48,6 +55,9 @@ public sealed class RuntimeEventSnapshot {
     public long Sequence { get; set; }
     public DateTimeOffset TimestampUtc { get; set; }
     public string TraceId { get; set; } = string.Empty;
+    public int ProcessId { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BridgeInstanceId { get; set; }
     public string ControlId { get; set; } = string.Empty;
     public string ControlName { get; set; } = string.Empty;
     public string ControlType { get; set; } = string.Empty;
@@ -58,6 +68,9 @@ public sealed class RuntimeEventSnapshot {
 
 public sealed class RuntimeEventTraceSnapshot {
     public string TraceId { get; set; } = string.Empty;
+    public int ProcessId { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BridgeInstanceId { get; set; }
     public bool Active { get; set; }
     public DateTimeOffset StartedAtUtc { get; set; }
     public DateTimeOffset ExpiresAtUtc { get; set; }
