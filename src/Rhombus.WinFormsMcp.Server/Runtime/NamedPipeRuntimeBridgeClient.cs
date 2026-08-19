@@ -91,14 +91,21 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
             new { controlId },
             cancellationToken).ConfigureAwait(false);
 
-    public async Task<IReadOnlyList<WindowSnapshot>> GetWindowTreeAsync(
+    public Task<IReadOnlyList<WindowSnapshot>> GetWindowTreeAsync(
         int processId,
         int maxNodes,
         CancellationToken cancellationToken) =>
+        GetWindowTreeAsync(processId, maxNodes, cancellationToken, 100);
+
+    public async Task<IReadOnlyList<WindowSnapshot>> GetWindowTreeAsync(
+        int processId,
+        int maxNodes,
+        CancellationToken cancellationToken,
+        int maxItems) =>
         await SendAsync<List<WindowSnapshot>>(
             processId,
             RuntimeBridgeProtocol.GetWindowTree,
-            new { maxNodes },
+            new { maxNodes, maxItems },
             cancellationToken).ConfigureAwait(false);
 
     public async Task<IReadOnlyList<ControlBindingSnapshot>> GetBindingsAsync(

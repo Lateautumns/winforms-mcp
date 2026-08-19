@@ -327,6 +327,184 @@ public sealed class RuntimeInspectionTests {
     }
 
     [Test]
+    [Timeout(45000)]
+    public async Task AntdUISelectDropdown_WindowTreeReturnsLayeredMetadataAndBoundedItems() {
+        var executable = Path.Combine(TestContext.CurrentContext.TestDirectory, "Rhombus.WinFormsMcp.AntdUI.TestApp.exe");
+        Assert.That(File.Exists(executable), Is.True, $"AntdUI test app was not found at {executable}");
+
+        var startInfo = new ProcessStartInfo {
+            FileName = executable,
+            UseShellExecute = false
+        };
+        startInfo.EnvironmentVariables["WINFORMS_MCP_OPEN_ANTDUI_POPUP"] = "1";
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("AntdUI test app could not be started.");
+        using var client = new NamedPipeRuntimeBridgeClient(
+            Options.Create(new McpServerOptions {
+                RuntimeBridgeConnectTimeoutMs = 250,
+                RuntimeBridgeRequestTimeoutMs = 3000
+            }),
+            NullLogger<NamedPipeRuntimeBridgeClient>.Instance);
+
+        try {
+            BridgeStatus? status = null;
+            var statusDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < statusDeadline) {
+                status = await client.GetStatusAsync(process.Id, CancellationToken.None);
+                if (status.Available)
+                    break;
+                await Task.Delay(100);
+            }
+
+            Assert.That(status?.Available, Is.True, status?.Error);
+            var tree = await client.GetControlTreeAsync(
+                process.Id,
+                null,
+                maxDepth: 6,
+                maxNodes: 400,
+                CancellationToken.None);
+            var select = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == "antdSelect");
+
+            IReadOnlyList<WindowSnapshot> windows = [];
+            WindowSnapshot? dropdown = null;
+            var windowDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < windowDeadline) {
+                windows = await client.GetWindowTreeAsync(
+                    process.Id,
+                    maxNodes: 400,
+                    CancellationToken.None,
+                    maxItems: 10);
+                dropdown = windows
+                    .SelectMany(FlattenWindows)
+                    .FirstOrDefault(window =>
+                        window.ProviderWindowMetadata?.SemanticType == "select-dropdown");
+                if (dropdown is not null)
+                    break;
+                await Task.Delay(100);
+            }
+
+            var metadata = dropdown?.ProviderWindowMetadata;
+            Assert.Multiple(() => {
+                Assert.That(dropdown, Is.Not.Null);
+                Assert.That(dropdown?.Kind, Is.EqualTo("Popup"));
+                Assert.That(metadata?.Provider, Is.EqualTo("AntdUI"));
+                Assert.That(metadata?.RuntimeWindowType, Does.Contain("LayeredFormSelectDown"));
+                Assert.That(metadata?.OwnerControlId, Is.EqualTo(select.Summary.Identity.ManagedId));
+                Assert.That(metadata?.OwnerControlPath, Does.EndWith("/antdSelect"));
+                Assert.That(metadata?.Hwnd, Is.EqualTo(dropdown?.Hwnd));
+                Assert.That(metadata?.Dpi, Is.GreaterThan(0));
+                Assert.That(metadata?.Items.Select(item => item.Text), Does.Contain("Alpha"));
+                Assert.That(metadata?.Items.Select(item => item.Text), Does.Contain("Beta"));
+                Assert.That(metadata?.SelectedItem?.Text, Is.EqualTo("Beta"));
+                Assert.That(metadata?.VisibleRange, Is.Not.Null);
+            });
+
+            var limitedWindows = await client.GetWindowTreeAsync(
+                process.Id,
+                maxNodes: 400,
+                CancellationToken.None,
+                maxItems: 1);
+            var limitedMetadata = limitedWindows
+                .SelectMany(FlattenWindows)
+                .First(window => window.ProviderWindowMetadata?.SemanticType == "select-dropdown")
+                .ProviderWindowMetadata!;
+            Assert.Multiple(() => {
+                Assert.That(limitedMetadata.Items, Has.Count.EqualTo(1));
+                Assert.That(limitedMetadata.Truncated, Is.True);
+            });
+        }
+        finally {
+            if (!process.HasExited) {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+        }
+    }
+
+    [TestCase("menu", "menu-popup", "antdMenu")]
+    [TestCase("tooltip", "tooltip", "antdSelect")]
+    [TestCase("message", "message", "AntdUiInspectionForm")]
+    [TestCase("drawer", "drawer", "AntdUiInspectionForm")]
+    [Timeout(45000)]
+    public async Task AntdUILayeredSurface_WindowTreeCorrelatesOwner(
+        string fixture,
+        string semanticType,
+        string ownerName) {
+        var executable = Path.Combine(TestContext.CurrentContext.TestDirectory, "Rhombus.WinFormsMcp.AntdUI.TestApp.exe");
+        Assert.That(File.Exists(executable), Is.True, $"AntdUI test app was not found at {executable}");
+
+        var startInfo = new ProcessStartInfo {
+            FileName = executable,
+            UseShellExecute = false
+        };
+        startInfo.EnvironmentVariables["WINFORMS_MCP_OPEN_ANTDUI_POPUP"] = fixture;
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("AntdUI test app could not be started.");
+        using var client = new NamedPipeRuntimeBridgeClient(
+            Options.Create(new McpServerOptions {
+                RuntimeBridgeConnectTimeoutMs = 250,
+                RuntimeBridgeRequestTimeoutMs = 3000
+            }),
+            NullLogger<NamedPipeRuntimeBridgeClient>.Instance);
+
+        try {
+            BridgeStatus? status = null;
+            var statusDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < statusDeadline) {
+                status = await client.GetStatusAsync(process.Id, CancellationToken.None);
+                if (status.Available)
+                    break;
+                await Task.Delay(100);
+            }
+
+            Assert.That(status?.Available, Is.True, status?.Error);
+            var tree = await client.GetControlTreeAsync(
+                process.Id,
+                null,
+                maxDepth: 6,
+                maxNodes: 400,
+                CancellationToken.None);
+            var owner = Flatten(tree.Roots)
+                .Single(node => node.Summary.Identity.Name == ownerName);
+
+            WindowSnapshot? surface = null;
+            var windowDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < windowDeadline) {
+                var windows = await client.GetWindowTreeAsync(
+                    process.Id,
+                    maxNodes: 400,
+                    CancellationToken.None,
+                    maxItems: 20);
+                surface = windows
+                    .SelectMany(FlattenWindows)
+                    .FirstOrDefault(window => window.ProviderWindowMetadata?.SemanticType == semanticType);
+                if (surface is not null)
+                    break;
+                await Task.Delay(100);
+            }
+
+            var metadata = surface?.ProviderWindowMetadata;
+            Assert.Multiple(() => {
+                Assert.That(surface, Is.Not.Null, $"The {fixture} fixture did not expose a managed layered window.");
+                Assert.That(metadata?.Provider, Is.EqualTo("AntdUI"));
+                Assert.That(metadata?.SemanticType, Is.EqualTo(semanticType));
+                Assert.That(metadata?.OwnerControlId, Is.EqualTo(owner.Summary.Identity.ManagedId));
+                Assert.That(metadata?.OwnerControlName, Is.EqualTo(ownerName));
+                Assert.That(metadata?.Hwnd, Is.EqualTo(surface?.Hwnd));
+                Assert.That(metadata?.Bounds.Width, Is.GreaterThan(0));
+                Assert.That(metadata?.Visible, Is.True);
+            });
+        }
+        finally {
+            if (!process.HasExited) {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+        }
+    }
+
+    [Test]
     public async Task SourceMappingService_MapsDesignerInitializationAndEventSymbol() {
         var root = Path.Combine(Path.GetTempPath(), $"winforms-mcp-source-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);

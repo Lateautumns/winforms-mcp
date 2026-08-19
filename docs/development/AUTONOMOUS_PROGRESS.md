@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 5 - AntdUI complex semantic tree inspection complete; Stage 5 Gate passed locally and on PR #2 Core CI. Ready for Stage 6.
+Stage 6 - AntdUI LayeredWindow / Popup inspection complete locally; Stage 6 Gate is ready for push/Windows CI. Continue to Stage 7 after Core CI.
 
 ## Implemented
 
@@ -34,6 +34,19 @@ Stage 5 - AntdUI complex semantic tree inspection complete; Stage 5 Gate passed 
 - Added semantic paging controls for top-level collections and table rows (start/count/startRow/rowCount/rowScope) with truncation metadata.
 - Added AntdUI Table columns, data/visible/rendered row scopes, sort/filter metadata, cell values, and CellButton snapshots.
 - Added complex semantic tree fixtures and end-to-end coverage to the AntdUI TestApp.
+- Added read-only provider window metadata for AntdUI layered forms:
+  - Select dropdown.
+  - Menu popup.
+  - Tooltip.
+  - Modal-compatible layered surfaces.
+  - Drawer.
+  - Message and notification-compatible layered surfaces.
+- Added bounded popup item snapshots, selected/highlighted state, visible range,
+  content/target bounds, DPI, owner managed identity/path, and per-window warnings.
+- Extended the existing `winforms_get_window_tree` request with optional `maxItems`;
+  no new MCP tool was added.
+- Added real AntdUI layered-window E2E coverage for Select, Menu, Tooltip, Message,
+  and Drawer owner correlation and bounded metadata.
 - Hardened UIA correlation fallback for managed controls using automation id, native HWND lookup, bounded HWND traversal, and process matching.
 - Hardened UI text input fallback for controls without a writable ValuePattern by trying writable child value patterns, STA clipboard paste, and paced SendKeys fallback.
 
@@ -46,6 +59,9 @@ Stage 5 - AntdUI complex semantic tree inspection complete; Stage 5 Gate passed 
 - Provider matching remains centralized in ControlProviderRegistry.
 - StandardWinFormsProvider remains the fallback for common WinForms controls and unknown third-party controls.
 - Protocol remains RuntimeBridge Protocol v1; semantic data is added through optional fields.
+- Window snapshots preserve all existing fields and add optional `providerWindowMetadata`.
+- AntdUI layered-window discovery is based on type identity plus a controlled
+  reflection allow-list; it never invokes arbitrary methods or mutates popup state.
 - Provider/semantic snapshots are built on the WinForms UI thread through the existing RuntimeBridge inspector path.
 - Managed RuntimeBridge remains the understanding layer; UIA remains the action layer.
 - Semantic reads remain bounded by RuntimeBridge clamps and provider-level collection/row limits; non-indexed offsets fail closed with explicit metadata.
@@ -68,7 +84,7 @@ Stage 5 - AntdUI complex semantic tree inspection complete; Stage 5 Gate passed 
 
 ## Tests
 
-- Full local test run: 334 total, 290 passed, 44 skipped, 0 failed.
+- Full local test run: 348 total, 304 passed, 44 skipped, 0 failed (elevated desktop session).
 - New coverage:
   - AntdUI provider detection and fallback behavior.
   - AntdUI Button, Input, InputNumber, Checkbox, Radio, Switch, and Select semantics.
@@ -81,6 +97,9 @@ Stage 5 - AntdUI complex semantic tree inspection complete; Stage 5 Gate passed 
   - AntdUI Table columns, row scopes, sorting/filter metadata, row paging, and CellButton semantics.
   - RuntimeBridge semantic-option transport, including null-safe JSON handling.
   - Existing MCP tool surface unchanged at 40 tools.
+  - LayeredWindow metadata contract serialization and semantic classification.
+  - Select dropdown item bounds/selection/truncation and owner managed ID.
+  - Menu popup, Tooltip, Message, and Drawer HWND/owner correlation.
 
 ## CI
 
@@ -91,6 +110,7 @@ Stage 5 - AntdUI complex semantic tree inspection complete; Stage 5 Gate passed 
 - PR #2 External CI: Claude Code Review fails for the same missing GitHub App setup.
 - Stage 4 commit CI: green.
 - Stage 5 Core CI: green for commit 700adc8 (push run 32213525287 and PR run 32213528776).
+- Stage 6 local Gate: passed; Windows CI pending the Stage 6 push.
 
 ## Git
 
@@ -99,8 +119,9 @@ Stage 5 - AntdUI complex semantic tree inspection complete; Stage 5 Gate passed 
 - Current Head Before Stage 5 Commit: 7869086 docs: record stage 4 ci status.
 - Stage 4 Commit: b7ac9f2 feat: add AntdUI basic control inspection.
 - Stage 5 Commit: 700adc8 feat: add AntdUI complex semantic inspection.
+- Stage 6 Commit: pending `feat: support AntdUI layered windows`.
 - Draft PR: #2, target feature/v11-foundation-refactor.
-- Working Tree: clean after Stage 5 CI status push.
+- Working Tree: changes staged for Stage 6 Gate review.
 
 ## Risks
 
@@ -109,15 +130,28 @@ Stage 5 - AntdUI complex semantic tree inspection complete; Stage 5 Gate passed 
 - Provider implementations must continue avoiding arbitrary runtime execution, setters, or method invocation.
 - Future AntdUI semantic support for Tabs, Tree, Table, and Menu should stay within the existing provider/semantic architecture and avoid new AntdUI-specific MCP tools unless compatibility requires it.
 - Table internals use a narrow allowlist of AntdUI members and return per-scope fallback/diagnostic metadata when version-sensitive caches are unavailable.
+- Layered forms are transient and may disappear during enumeration; the inspector
+  returns bounded metadata and warnings and tolerates disposal races.
 - Local SDK note: this machine lacks the repository-requested .NET 8 SDK, so global.json was temporarily pointed at local .NET 9 for the Gate and restored before commit.
 
 ## Next
 
-- Stage 5 Core CI is green; begin Stage 6 LayeredWindow research.
+- Push Stage 6 and wait for PR #2 Core CI; then begin Stage 7 Rendering / Theme / DPI.
 
 ## Hard Blocker
 
 None.
+
+## Stage 6 Gate Evidence
+
+- `dotnet format Rhombus.WinFormsMcp.sln --verbosity quiet`: passed.
+- `dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes --verbosity quiet`: passed.
+- `dotnet restore Rhombus.WinFormsMcp.sln`: passed.
+- `dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false`: passed with 0 warnings and 0 errors.
+- `dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false`: passed for net48, netcoreapp3.1, and net8.0-windows with 0 warnings and 0 errors.
+- Focused LayeredWindow and popup E2E tests: 18 passed.
+- Full elevated desktop test run: 348 total, 304 passed, 44 skipped, 0 failed.
+- Non-elevated full test run: one existing FlaUI `SendInput` access-denied failure; elevated rerun passed.
 
 ## Stage 5 Gate Evidence
 

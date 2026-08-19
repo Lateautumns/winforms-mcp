@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Rhombus.WinFormsMcp.RuntimeContracts;
 
@@ -222,6 +223,63 @@ public sealed class WindowSnapshot {
     public string? Parent { get; set; }
     public string Kind { get; set; } = "Window";
     public List<WindowSnapshot> Children { get; set; } = new();
+    /// <summary>
+    /// Optional metadata supplied by a UI framework provider for transient or
+    /// layered windows. The base HWND snapshot remains useful when no provider
+    /// is present.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ProviderWindowMetadataSnapshot? ProviderWindowMetadata { get; set; }
+}
+
+/// <summary>
+/// Bounded, read-only metadata for a provider-owned window such as an AntdUI
+/// dropdown, tooltip, drawer, or notification.
+/// </summary>
+public sealed class ProviderWindowMetadataSnapshot {
+    public string Provider { get; set; } = string.Empty;
+    public string RuntimeWindowType { get; set; } = string.Empty;
+    public string SemanticType { get; set; } = string.Empty;
+    public string Hwnd { get; set; } = string.Empty;
+    public string? OwnerControlId { get; set; }
+    public string? OwnerControlPath { get; set; }
+    public string? OwnerControlName { get; set; }
+    public string? OwnerControlType { get; set; }
+    public RectSnapshot Bounds { get; set; } = new();
+    public RectSnapshot? ContentBounds { get; set; }
+    public RectSnapshot? TargetBounds { get; set; }
+    public bool Visible { get; set; }
+    public double? Dpi { get; set; }
+    public List<ProviderWindowItemSnapshot> Items { get; set; } = new();
+    public ProviderWindowItemSnapshot? SelectedItem { get; set; }
+    public ProviderWindowItemSnapshot? HighlightedItem { get; set; }
+    public ProviderWindowRangeSnapshot? VisibleRange { get; set; }
+    public bool Truncated { get; set; }
+    public List<string> Warnings { get; set; } = new();
+}
+
+/// <summary>
+/// A safe summary of one item rendered by a provider popup. Values are kept as
+/// strings so arbitrary third-party objects never cross the process boundary.
+/// </summary>
+public sealed class ProviderWindowItemSnapshot {
+    public int Index { get; set; }
+    public string? Kind { get; set; }
+    public string? Name { get; set; }
+    public string? Text { get; set; }
+    public string? Value { get; set; }
+    public bool? Enabled { get; set; }
+    public bool? Selected { get; set; }
+    public bool? Highlighted { get; set; }
+    public bool? Visible { get; set; }
+    public RectSnapshot? Bounds { get; set; }
+    public List<ProviderWindowItemSnapshot> Children { get; set; } = new();
+}
+
+public sealed class ProviderWindowRangeSnapshot {
+    public int Start { get; set; }
+    public int Count { get; set; }
+    public int? TotalCount { get; set; }
 }
 
 public sealed class SourceLocationSnapshot {

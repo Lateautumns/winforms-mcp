@@ -108,7 +108,8 @@ internal static class ToolDefinitionCatalog {
         Define(ToolNames.GetAncestors, "Return the managed parent chain for a control, nearest parent first.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID"))), "pid", "controlId"),
         Define(ToolNames.GetWindowTree, "Return the bounded HWND tree for a target process, including dialogs and owned/pop-up windows.", Props(
-            ("pid", Integer("Target process ID")), ("maxNodes", Integer("Maximum returned HWND nodes"))), "pid"),
+            ("pid", Integer("Target process ID")), ("maxNodes", Integer("Maximum returned HWND nodes")),
+            ("maxItems", Integer("Maximum provider popup items per window"))), "pid"),
         Define(ToolNames.GetBindings, "Read DataBindings attached to one managed WinForms control.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID"))), "pid", "controlId"),
         Define(ToolNames.GetSourceMapping, "Map a managed control to its Designer declaration, initialization, and event handler symbols.", Props(

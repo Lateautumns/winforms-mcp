@@ -226,7 +226,8 @@ public sealed class RuntimeBridgeHost : IDisposable {
                 RuntimeBridgeProtocol.GetWindowTree => await _dispatcher.InvokeAsync(
                     () => _inspector.GetWindowTree(
                         request.Pid,
-                        GetInt(request.Arguments, "maxNodes", 200)),
+                        GetInt(request.Arguments, "maxNodes", 200),
+                        GetInt(request.Arguments, "maxItems", 100)),
                     cancellationToken).ConfigureAwait(false),
                 RuntimeBridgeProtocol.GetBindings => await _dispatcher.InvokeAsync(
                     () => _inspector.GetBindings(

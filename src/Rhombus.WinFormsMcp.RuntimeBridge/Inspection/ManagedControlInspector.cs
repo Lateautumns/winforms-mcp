@@ -48,7 +48,8 @@ internal sealed class ManagedControlInspector {
             },
             Capabilities = [
                 "controlTree", "properties", "layout", "ancestors", "windowTree", "bindings",
-                "uiThreadSnapshots", "providerSemantics", "providerSemanticPaging"
+                "uiThreadSnapshots", "providerSemantics", "providerSemanticPaging", "layeredWindows",
+                "providerWindowMetadata"
             ]
         };
     }
@@ -133,11 +134,19 @@ internal sealed class ManagedControlInspector {
         return result;
     }
 
-    public List<WindowSnapshot> GetWindowTree(int processId, int maxNodes) {
+    public List<WindowSnapshot> GetWindowTree(int processId, int maxNodes, int maxItems = 100) {
         EnsureCurrentProcess(processId);
+        _identityRegistry.ForgetDisposed();
+        var boundedItems = Clamp(maxItems, 0, Math.Max(0, _options.MaxProviderWindowItems));
+        var providerMetadata = LayeredWindowInspector.InspectOpenForms(
+            processId,
+            _identityRegistry,
+            GetControlPath,
+            boundedItems);
         return Win32WindowInspector.GetProcessWindows(
             processId,
-            Clamp(maxNodes, 1, Math.Max(1, _options.MaxNodes)));
+            Clamp(maxNodes, 1, Math.Max(1, _options.MaxNodes)),
+            providerMetadata);
     }
 
     public List<ControlBindingSnapshot> GetBindings(int processId, string controlId) {

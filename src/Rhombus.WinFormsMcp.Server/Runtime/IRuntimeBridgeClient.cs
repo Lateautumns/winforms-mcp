@@ -30,6 +30,17 @@ internal interface IRuntimeBridgeClient {
         int maxNodes,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Optional bounded provider-item limit. The default preserves the
+    /// original client contract for implementations that do not support
+    /// provider window metadata yet.
+    /// </summary>
+    Task<IReadOnlyList<WindowSnapshot>> GetWindowTreeAsync(
+        int processId,
+        int maxNodes,
+        CancellationToken cancellationToken,
+        int maxItems) => GetWindowTreeAsync(processId, maxNodes, cancellationToken);
+
     Task<IReadOnlyList<ControlBindingSnapshot>> GetBindingsAsync(
         int processId,
         string controlId,

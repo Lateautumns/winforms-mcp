@@ -4,6 +4,9 @@ using System.Reflection;
 namespace Rhombus.WinFormsMcp.AntdUI.TestApp;
 
 public sealed class AntdUiInspectionForm : Form {
+    private global::AntdUI.Select? _inspectionSelect;
+    private global::AntdUI.Menu? _inspectionMenu;
+
     public AntdUiInspectionForm() {
         Name = "AntdUiInspectionForm";
         Text = "AntdUI RuntimeBridge Inspection";
@@ -125,6 +128,7 @@ public sealed class AntdUiInspectionForm : Form {
         select.Items.Add(new global::AntdUI.SelectItem("Alpha", "A") { SubText = "First" });
         select.Items.Add(new global::AntdUI.SelectItem("Beta", "B") { SubText = "Second" });
         select.SelectedIndex = 1;
+        _inspectionSelect = select;
 
         var tabs = new global::AntdUI.Tabs {
             Name = "antdTabs",
@@ -215,6 +219,7 @@ public sealed class AntdUiInspectionForm : Form {
             Enabled = false
         });
         menu.Items.Add(fileMenu);
+        _inspectionMenu = menu;
 
         Add(layout, normalButton, 0, 0);
         Add(layout, loadingButton, 1, 0);
@@ -234,6 +239,88 @@ public sealed class AntdUiInspectionForm : Form {
         Add(layout, menu, 1, 9);
 
         Controls.Add(layout);
+    }
+
+    /// <summary>
+    /// Test-only hook used to expose a real AntdUI layered dropdown without
+    /// adding a RuntimeBridge mutation command.
+    /// </summary>
+    public void OpenInspectionSelectDropdown() {
+        if (_inspectionSelect is not null)
+            _inspectionSelect.ExpandDrop = true;
+    }
+
+    public void OpenInspectionTooltip() {
+        var owner = _inspectionSelect;
+        if (owner is null)
+            return;
+
+        var layeredType = owner.GetType().Assembly.GetType("AntdUI.TooltipForm", throwOnError: false);
+        var configType = owner.GetType().Assembly.GetType("AntdUI.Tooltip+Config", throwOnError: false);
+        if (layeredType is null || configType is null)
+            return;
+
+        try {
+            var config = Activator.CreateInstance(configType, owner, "Layered tooltip");
+            if (config is null)
+                return;
+            var constructor = layeredType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(candidate => {
+                    var parameters = candidate.GetParameters();
+                    return parameters.Length == 3 &&
+                        parameters[0].ParameterType == typeof(Control) &&
+                        parameters[1].ParameterType == typeof(string) &&
+                        parameters[2].ParameterType.IsInstanceOfType(config);
+                });
+            if (constructor?.Invoke([owner, "Layered tooltip", config]) is Form tooltip)
+                tooltip.Show(owner);
+        }
+        catch {
+            // This is a best-effort test fixture for an internal AntdUI type.
+        }
+    }
+
+    public void OpenInspectionMenuPopup() {
+        var owner = _inspectionMenu;
+        if (owner is null)
+            return;
+
+        var layeredType = owner.GetType().Assembly.GetType("AntdUI.LayeredFormMenuDown", throwOnError: false);
+        if (layeredType is null)
+            return;
+
+        try {
+            var items = owner.Items.ToList();
+            var constructor = layeredType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(candidate => {
+                    var parameters = candidate.GetParameters();
+                    return parameters.Length == 4 &&
+                        parameters[0].ParameterType.IsInstanceOfType(owner) &&
+                        parameters[1].ParameterType == typeof(int) &&
+                        parameters[2].ParameterType == typeof(Rectangle) &&
+                        parameters[3].ParameterType.IsInstanceOfType(items);
+                });
+            if (constructor?.Invoke([owner, 8, new Rectangle(0, 0, owner.Width, 40), items]) is Form popup)
+                popup.Show(owner);
+        }
+        catch {
+            // This is a best-effort test fixture for an internal AntdUI type.
+        }
+    }
+
+    public void OpenInspectionMessage() {
+        global::AntdUI.Message.info(this, "Layered message", autoClose: 0);
+    }
+
+    public void OpenInspectionDrawer() {
+        var content = new Panel {
+            Name = "inspectionDrawerContent",
+            Size = new Size(260, 240)
+        };
+        _ = global::AntdUI.Drawer.open(new global::AntdUI.Drawer.Config(this, content) {
+            Mask = false,
+            DisplayDelay = 0
+        });
     }
 
     private sealed class DeviceRow {
