@@ -83,16 +83,31 @@ internal sealed class SourceMappingService {
         result.Namespace = owner.Namespace;
         result.Type = owner.Name;
         result.FullyQualifiedType = owner.FullyQualifiedName;
+        var project = ResolveProject(index.Root, codeBehind?.Path ?? designer?.Path ?? owner.Path);
+        var ownerLocation = ToMappingLocation(
+            codeBehind?.TypeLocation ?? designer?.TypeLocation ?? owner.TypeLocation,
+            project);
+        result.Source = CreateSourceIdentity(
+            control,
+            project,
+            ownerLocation,
+            result.Namespace,
+            result.Type,
+            result.FullyQualifiedType,
+            result.Type,
+            "type",
+            null,
+            result.FullyQualifiedType);
 
         if (designer is null) {
             result.Warnings.Add("A .Designer.cs partial class was not found.");
         }
         else {
-            result.Designer = ToClassLocation(designer);
+            result.Designer = ToMappingLocation(ToClassLocation(designer), project);
             if (designer.Fields.TryGetValue(control.Name, out var declaration))
-                result.Declaration = declaration;
+                result.Declaration = ToMappingLocation(declaration, project);
             if (designer.Initialization.TryGetValue(control.Name, out var initialization))
-                result.Initialization = initialization;
+                result.Initialization = ToMappingLocation(initialization, project);
         }
 
         if (codeBehind is null) {
@@ -120,12 +135,25 @@ internal sealed class SourceMappingService {
             var fullyQualifiedSymbol = string.IsNullOrWhiteSpace(result.FullyQualifiedType)
                 ? eventRegistration.Method
                 : $"{result.FullyQualifiedType}.{eventRegistration.Method}";
+            var mappedLocation = ToMappingLocation(location, project);
             result.Events[eventRegistration.Event] = new EventHandlerSnapshot {
                 Event = eventRegistration.Event,
                 Method = eventRegistration.Method,
-                File = location.File,
-                Line = location.Line,
-                FullyQualifiedSymbol = fullyQualifiedSymbol
+                File = mappedLocation.File,
+                Line = mappedLocation.Line,
+                FullyQualifiedSymbol = fullyQualifiedSymbol,
+                Location = mappedLocation,
+                Source = CreateSourceIdentity(
+                    control,
+                    project,
+                    mappedLocation,
+                    result.Namespace,
+                    result.Type,
+                    result.FullyQualifiedType,
+                    eventRegistration.Method,
+                    "method",
+                    eventRegistration.Method,
+                    fullyQualifiedSymbol)
             };
             if (handlerLocation is null)
                 result.Warnings.Add($"Event handler '{eventRegistration.Method}' was not found in a non-Designer partial class.");
@@ -176,4 +204,100 @@ internal sealed class SourceMappingService {
     }
 
     private static SourceLocationSnapshot ToClassLocation(IndexedSourceType candidate) => candidate.TypeLocation;
+
+    private static SourceProjectContext ResolveProject(string sourceRoot, string sourceFile) {
+        var canonicalRoot = Path.GetFullPath(sourceRoot);
+        for (var current = Path.GetDirectoryName(sourceFile);
+             !string.IsNullOrWhiteSpace(current) && IsWithinRoot(current, canonicalRoot);
+             current = Directory.GetParent(current)?.FullName) {
+            try {
+                var projectPath = Directory.EnumerateFiles(current, "*.csproj", SearchOption.TopDirectoryOnly)
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(projectPath)) {
+                    var fullProjectPath = Path.GetFullPath(projectPath);
+                    return new SourceProjectContext(
+                        canonicalRoot,
+                        Path.GetFileNameWithoutExtension(fullProjectPath),
+                        fullProjectPath);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
+                // Absolute source locations remain useful when project discovery is unavailable.
+            }
+        }
+
+        return new SourceProjectContext(canonicalRoot, null, null);
+    }
+
+    private static bool IsWithinRoot(string candidate, string root) {
+        var relative = Path.GetRelativePath(root, candidate);
+        return !relative.Equals("..", StringComparison.Ordinal) &&
+               !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
+               !Path.IsPathRooted(relative);
+    }
+
+    private static SourceLocationSnapshot ToMappingLocation(
+        SourceLocationSnapshot location,
+        SourceProjectContext project) {
+        return new SourceLocationSnapshot {
+            File = location.File,
+            ProjectRelativeFile = ToProjectRelativePath(project.SourceRoot, location.File),
+            Line = location.Line,
+            Column = location.Column,
+            EndLine = location.EndLine,
+            EndColumn = location.EndColumn
+        };
+    }
+
+    private static SourceIdentitySnapshot CreateSourceIdentity(
+        ControlIdentity control,
+        SourceProjectContext project,
+        SourceLocationSnapshot location,
+        string namespaceName,
+        string type,
+        string fullyQualifiedType,
+        string member,
+        string memberKind,
+        string? method,
+        string fullyQualifiedSymbol) {
+        return new SourceIdentitySnapshot {
+            Project = project.Name,
+            ProjectPath = project.Path,
+            SourceRoot = project.SourceRoot,
+            File = location.File,
+            ProjectRelativeFile = location.ProjectRelativeFile,
+            Line = location.Line,
+            Column = location.Column,
+            EndLine = location.EndLine,
+            EndColumn = location.EndColumn,
+            Namespace = namespaceName,
+            Type = type,
+            FullyQualifiedType = fullyQualifiedType,
+            Member = member,
+            MemberKind = memberKind,
+            Method = method,
+            FullyQualifiedSymbol = fullyQualifiedSymbol,
+            RuntimeControlId = control.ManagedId,
+            RuntimeControlName = control.Name,
+            RuntimeControlType = control.Type
+        };
+    }
+
+    private static string? ToProjectRelativePath(string sourceRoot, string file) {
+        try {
+            var relative = Path.GetRelativePath(sourceRoot, file);
+            if (relative.Equals("..", StringComparison.Ordinal) ||
+                relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
+                Path.IsPathRooted(relative))
+                return null;
+
+            return relative.Replace(Path.DirectorySeparatorChar, '/');
+        }
+        catch (ArgumentException) {
+            return null;
+        }
+    }
+
+    private sealed record SourceProjectContext(string SourceRoot, string? Name, string? Path);
 }

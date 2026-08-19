@@ -289,10 +289,61 @@ public sealed class ProviderWindowRangeSnapshot {
 
 public sealed class SourceLocationSnapshot {
     public string File { get; set; } = string.Empty;
+    /// <summary>
+    /// Optional forward-slash path relative to the source root used for the
+    /// mapping request. File remains the canonical absolute path.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProjectRelativeFile { get; set; }
     public int Line { get; set; }
     public int Column { get; set; }
     public int EndLine { get; set; }
     public int EndColumn { get; set; }
+}
+
+/// <summary>
+/// Optional read-only source handoff metadata for IDE and code graph tools.
+/// This is an interoperability hint, not a compiler symbol key.
+/// </summary>
+public sealed class SourceIdentitySnapshot {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Project { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProjectPath { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceRoot { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? File { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProjectRelativeFile { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Line { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Column { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? EndLine { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? EndColumn { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Namespace { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Type { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FullyQualifiedType { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Member { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? MemberKind { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Method { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FullyQualifiedSymbol { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RuntimeControlId { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RuntimeControlName { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RuntimeControlType { get; set; }
 }
 
 public sealed class EventHandlerSnapshot {
@@ -301,6 +352,10 @@ public sealed class EventHandlerSnapshot {
     public string File { get; set; } = string.Empty;
     public int Line { get; set; }
     public string FullyQualifiedSymbol { get; set; } = string.Empty;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SourceLocationSnapshot? Location { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SourceIdentitySnapshot? Source { get; set; }
 }
 
 public sealed class SourceMappingSnapshot {
@@ -314,6 +369,8 @@ public sealed class SourceMappingSnapshot {
     public string? CodeBehindFile { get; set; }
     public Dictionary<string, EventHandlerSnapshot> Events { get; set; } = new(StringComparer.Ordinal);
     public List<string> Warnings { get; set; } = new();
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SourceIdentitySnapshot? Source { get; set; }
     /// <summary>
     /// Read-only metadata describing the bounded source-index refresh used for this mapping.
     /// This is optional so existing consumers can continue to deserialize the original contract.

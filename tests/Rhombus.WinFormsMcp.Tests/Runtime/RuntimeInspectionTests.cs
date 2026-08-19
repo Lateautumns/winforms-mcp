@@ -610,8 +610,10 @@ public sealed class RuntimeInspectionTests {
     public async Task SourceMappingService_MapsDesignerInitializationAndEventSymbol() {
         var root = Path.Combine(Path.GetTempPath(), $"winforms-mcp-source-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
+        var project = Path.Combine(root, "Demo.WinForms.csproj");
         var designer = Path.Combine(root, "TestForm.Designer.cs");
         var codeBehind = Path.Combine(root, "TestForm.cs");
+        File.WriteAllText(project, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
         File.WriteAllText(designer, """
             namespace Demo;
             partial class TestForm {
@@ -651,9 +653,21 @@ public sealed class RuntimeInspectionTests {
             Assert.Multiple(() => {
                 Assert.That(mapping.FullyQualifiedType, Is.EqualTo("Demo.TestForm"));
                 Assert.That(mapping.Declaration?.File, Is.EqualTo(designer));
+                Assert.That(mapping.Declaration?.ProjectRelativeFile, Is.EqualTo("TestForm.Designer.cs"));
                 Assert.That(mapping.Initialization?.Line, Is.EqualTo(4));
                 Assert.That(mapping.Events["Click"].File, Is.EqualTo(codeBehind));
+                Assert.That(mapping.Events["Click"].Location?.ProjectRelativeFile, Is.EqualTo("TestForm.cs"));
+                Assert.That(mapping.Events["Click"].Location?.Column, Is.GreaterThan(0));
                 Assert.That(mapping.Events["Click"].FullyQualifiedSymbol, Is.EqualTo("Demo.TestForm.BtnSave_Click"));
+                Assert.That(mapping.Source?.Project, Is.EqualTo("Demo.WinForms"));
+                Assert.That(mapping.Source?.ProjectPath, Is.EqualTo(project));
+                Assert.That(mapping.Source?.SourceRoot, Is.EqualTo(root));
+                Assert.That(mapping.Source?.File, Is.EqualTo(codeBehind));
+                Assert.That(mapping.Source?.ProjectRelativeFile, Is.EqualTo("TestForm.cs"));
+                Assert.That(mapping.Source?.RuntimeControlId, Is.EqualTo("ctrl_1"));
+                Assert.That(mapping.Source?.FullyQualifiedSymbol, Is.EqualTo("Demo.TestForm"));
+                Assert.That(mapping.Events["Click"].Source?.Method, Is.EqualTo("BtnSave_Click"));
+                Assert.That(mapping.Events["Click"].Source?.FullyQualifiedSymbol, Is.EqualTo("Demo.TestForm.BtnSave_Click"));
                 Assert.That(mapping.Index?.Scanned, Is.EqualTo(3));
                 Assert.That(mapping.Index?.Parsed, Is.EqualTo(3));
                 Assert.That(mapping.Index?.Reused, Is.Zero);
