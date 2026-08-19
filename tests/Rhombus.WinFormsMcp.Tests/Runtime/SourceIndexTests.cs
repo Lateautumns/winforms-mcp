@@ -1,3 +1,6 @@
+using System.Text.Json;
+
+using Rhombus.WinFormsMcp.RuntimeContracts;
 using Rhombus.WinFormsMcp.Server.Runtime;
 using Rhombus.WinFormsMcp.Server.Tools;
 
@@ -5,6 +8,15 @@ namespace Rhombus.WinFormsMcp.Tests.Runtime;
 
 [TestFixture]
 public sealed class SourceIndexTests {
+    [Test]
+    public void SourceIdentitySnapshot_OmitsUnavailableOptionalFields() {
+        var json = JsonSerializer.Serialize(
+            new SourceMappingSnapshot(),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        Assert.That(json, Does.Not.Contain("\"source\":null"));
+    }
+
     [Test]
     public void SourceMappingToolSchema_ExposesOptionalMaxFiles() {
         var tool = ToolDefinitionCatalog.All.Single(definition => definition.Name == ToolNames.GetSourceMapping);

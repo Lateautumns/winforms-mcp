@@ -136,6 +136,26 @@ checks return structured evidence; screenshot comparison accepts exactly one pat
 base64 PNG for each side; event tracing uses expiring ring-buffer sessions and only
 subscribes to the documented WinForms event whitelist.
 
+## Cross-MCP source workflow
+
+`winforms_get_source_mapping` ties a live control to Designer declarations,
+initialization statements, and event handlers. Its existing absolute source locations
+are directly usable with VS MCP navigation, editor, breakpoints, and debugger tools.
+Optional `source` metadata also supplies a project hint, source-root-relative file,
+fully qualified type/symbol, and runtime control identity for CodeGraph queries.
+
+```text
+WinForms MCP runtime inspection
+  -> winforms_get_source_mapping
+  -> CodeGraph callers / callees / impact
+  -> VS MCP navigate, build, debug
+  -> WinForms MCP runtime validation
+```
+
+The servers remain independent: WinForms MCP does not invoke VS MCP or CodeGraph MCP.
+See [the integration contracts](docs/integration/Cross-MCP-Metadata-Schema.md) for the
+field meanings, coordinate conventions, and safe handoff patterns.
+
 ## Environment variables
 
 | Variable | Default | Description |
