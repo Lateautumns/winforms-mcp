@@ -14,6 +14,11 @@ public static class RuntimeBridgeProtocol {
     public const string GetAncestors = "get_ancestors";
     public const string GetWindowTree = "get_window_tree";
     public const string GetBindings = "get_bindings";
+    public const string DetectDiagnostics = "detect_diagnostics";
+    public const string GetAccessibility = "get_accessibility";
+    public const string StartEventTrace = "start_event_trace";
+    public const string ReadEventTrace = "read_event_trace";
+    public const string StopEventTrace = "stop_event_trace";
 
     public static string GetPipeName(int processId) => $"{PipePrefix}{processId}";
 }

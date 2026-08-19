@@ -41,4 +41,10 @@ internal static class ToolNames {
     public const string GetWindowTree = "winforms_get_window_tree";
     public const string GetBindings = "winforms_get_bindings";
     public const string GetSourceMapping = "winforms_get_source_mapping";
+    public const string DetectLayoutIssues = "winforms_detect_layout_issues";
+    public const string CompareScreenshot = "winforms_compare_screenshot";
+    public const string CheckAccessibility = "winforms_check_accessibility";
+    public const string StartEventTrace = "winforms_start_event_trace";
+    public const string ReadEventTrace = "winforms_read_event_trace";
+    public const string StopEventTrace = "winforms_stop_event_trace";
 }

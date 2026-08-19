@@ -112,6 +112,11 @@ public sealed class ControlBindingSnapshot {
     public bool FormattingEnabled { get; set; }
     public string DataSourceUpdateMode { get; set; } = string.Empty;
     public string ControlUpdateMode { get; set; } = string.Empty;
+    public bool? DataSourcePresent { get; set; }
+    public bool? DataMemberExists { get; set; }
+    public bool? ControlPropertyExists { get; set; }
+    public bool? ControlPropertyReadOnly { get; set; }
+    public string? Error { get; set; }
 }
 
 public sealed class ControlProviderSnapshot {

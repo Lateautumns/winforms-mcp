@@ -15,6 +15,7 @@ using Microsoft.Extensions.Options;
 
 using Rhombus.WinFormsMcp.Rendering;
 using Rhombus.WinFormsMcp.Server.Automation;
+using Rhombus.WinFormsMcp.Server.Diagnostics;
 using Rhombus.WinFormsMcp.Server.Runtime;
 
 namespace Rhombus.WinFormsMcp.Server;
@@ -42,6 +43,7 @@ class Program {
                 services.AddSingleton<IRuntimeBridgeClient, NamedPipeRuntimeBridgeClient>();
                 services.AddSingleton<SourceMappingService>();
                 services.AddSingleton<ManagedUiaCorrelationService>();
+                services.AddSingleton<ScreenshotDiffService>();
                 services.AddSingleton<RendererProcessPool>();
 
                 services.AddSingleton(sp => {

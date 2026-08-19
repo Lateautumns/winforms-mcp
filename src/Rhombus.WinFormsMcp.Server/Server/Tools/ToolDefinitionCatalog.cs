@@ -117,7 +117,32 @@ internal static class ToolDefinitionCatalog {
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID"))), "pid", "controlId"),
         Define(ToolNames.GetSourceMapping, "Map a managed control to its Designer declaration, initialization, and event handler symbols.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID")),
-            ("sourceRoot", String("Optional source or solution root to scan"))), "pid", "controlId")
+            ("sourceRoot", String("Optional source or solution root to scan"))), "pid", "controlId"),
+        Define(ToolNames.DetectLayoutIssues, "Detect bounded, evidence-based WinForms layout, DPI, and binding issues.", Props(
+            ("pid", Integer("Target process ID")), ("rootId", String("Optional managed root control ID")),
+            ("checks", Array("Checks: layout, dpi, or bindings", "string")),
+            ("maxDepth", Integer("Maximum managed tree depth")), ("maxNodes", Integer("Maximum controls to scan")),
+            ("maxDiagnostics", Integer("Maximum diagnostics to return"))), "pid"),
+        Define(ToolNames.CompareScreenshot, "Compare two PNG screenshots with a deterministic bounded pixel diff.", Props(
+            ("beforePath", String("Path to the before PNG")), ("afterPath", String("Path to the after PNG")),
+            ("beforeBase64", String("Optional before PNG as base64")), ("afterBase64", String("Optional after PNG as base64")),
+            ("maxRegions", Integer("Maximum changed regions to return")),
+            ("pixelThreshold", Integer("Per-channel difference threshold from 0 to 255")))),
+        Define(ToolNames.CheckAccessibility, "Check bounded WinForms accessibility metadata and UIA patterns.", Props(
+            ("pid", Integer("Target process ID")), ("rootId", String("Optional managed root control ID")),
+            ("maxDepth", Integer("Maximum managed tree depth")), ("maxNodes", Integer("Maximum controls to inspect")),
+            ("maxDiagnostics", Integer("Maximum diagnostics to return"))), "pid"),
+        Define(ToolNames.StartEventTrace, "Start a bounded read-only RuntimeBridge trace for whitelisted WinForms events.", Props(
+            ("pid", Integer("Target process ID")), ("rootId", String("Optional managed root control ID")),
+            ("events", Array("Whitelisted events such as Click, TextChanged, and FormClosing", "string")),
+            ("maxEvents", Integer("Ring buffer capacity")), ("durationMs", Integer("Trace lifetime in milliseconds")),
+            ("maxNodes", Integer("Maximum controls to subscribe"))), "pid"),
+        Define(ToolNames.ReadEventTrace, "Read new events from a bounded RuntimeBridge event trace.", Props(
+            ("pid", Integer("Target process ID")), ("traceId", String("Trace session ID")),
+            ("afterSequence", Integer("Return events after this sequence number; use the previous response nextSequence cursor")),
+            ("maxEvents", Integer("Maximum events to return"))), "pid", "traceId"),
+        Define(ToolNames.StopEventTrace, "Stop a RuntimeBridge event trace and detach all event handlers.", Props(
+            ("pid", Integer("Target process ID")), ("traceId", String("Trace session ID"))), "pid", "traceId")
     ];
 
     private static Tool Define(

@@ -16,6 +16,11 @@ public sealed class RuntimeBridgeOptions {
     /// Maximum provider popup items inspected for one HWND tree request.
     /// </summary>
     public int MaxProviderWindowItems { get; set; } = 100;
+    public int MaxDiagnostics { get; set; } = 2_000;
+    public int MaxEventTraceEvents { get; set; } = 10_000;
+    public int MaxEventTraceControls { get; set; } = 2_000;
+    public int MaxEventTraceSessions { get; set; } = 16;
+    public int MaxEventTraceDurationMs { get; set; } = 30 * 60 * 1000;
     public string BridgeVersion { get; set; } = GetAssemblyVersion();
 
     internal string EffectivePipeName => string.IsNullOrWhiteSpace(PipeName)

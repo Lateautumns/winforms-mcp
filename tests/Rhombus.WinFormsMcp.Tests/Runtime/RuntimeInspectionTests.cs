@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -74,6 +75,21 @@ public sealed class RuntimeInspectionTests {
                 process.Id,
                 maxNodes: 200,
                 CancellationToken.None);
+            var diagnostics = await client.DetectDiagnosticsAsync(
+                process.Id,
+                null,
+                ["layout", "dpi", "bindings"],
+                maxDepth: 5,
+                maxNodes: 200,
+                maxDiagnostics: 100,
+                CancellationToken.None);
+            var accessibility = await client.GetAccessibilityAsync(
+                process.Id,
+                null,
+                maxDepth: 5,
+                maxNodes: 100,
+                maxDiagnostics: 100,
+                CancellationToken.None);
 
             Assert.Multiple(() => {
                 Assert.That(tree.Truncated, Is.False);
@@ -81,6 +97,8 @@ public sealed class RuntimeInspectionTests {
                 Assert.That(inspection.Summary.Identity.OwnerType, Does.EndWith(".Form1"));
                 Assert.That(status?.Process?.BridgeVersion, Is.EqualTo("1.5.12-beta"));
                 Assert.That(status?.Capabilities, Does.Contain("providerSemantics"));
+                Assert.That(status?.Capabilities, Does.Contain("diagnostics"));
+                Assert.That(status?.Capabilities, Does.Contain("eventTrace"));
                 Assert.That(inspection.Properties.Values["Name"].GetString(), Is.EqualTo("clickButton"));
                 Assert.That(inspection.Properties.Values, Does.ContainKey("AccessibleName"));
                 Assert.That(inspection.Layout.Bounds.Width, Is.EqualTo(100));
@@ -93,9 +111,16 @@ public sealed class RuntimeInspectionTests {
                     binding.DataMember == "DeviceName" &&
                     binding.DataSourceType!.Contains("BindingModel", StringComparison.Ordinal) &&
                     binding.FormattingEnabled &&
-                    binding.DataSourceUpdateMode == "OnPropertyChanged"));
+                    binding.DataSourceUpdateMode == "OnPropertyChanged" &&
+                    binding.DataMemberExists == true &&
+                    binding.ControlPropertyExists == true));
                 Assert.That(shallowTree.Truncated, Is.True);
                 Assert.That(windows.SelectMany(FlattenWindows).Select(window => window.Hwnd), Is.Unique);
+                Assert.That(diagnostics.ScannedNodes, Is.GreaterThan(0));
+                Assert.That(diagnostics.Checks, Is.EquivalentTo(new[] { "bindings", "dpi", "layout" }));
+                Assert.That(diagnostics.Diagnostics.All(item => item.Evidence.Count > 0), Is.True);
+                Assert.That(accessibility.ScannedNodes, Is.GreaterThan(0));
+                Assert.That(accessibility.Controls.Select(item => item.Summary.Identity.Name), Does.Contain("textBox"));
             });
 
             var semanticInspection = await client.InspectControlAsync(
@@ -114,6 +139,83 @@ public sealed class RuntimeInspectionTests {
                 Assert.That(semantic.SemanticType, Is.EqualTo("button"));
                 Assert.That(semantic.SupportedInteractionHints, Does.Contain("invoke"));
                 Assert.That(semantic.State["enabled"].GetBoolean(), Is.True);
+            });
+        }
+        finally {
+            if (!process.HasExited) {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+        }
+    }
+
+    [Test]
+    [Timeout(30000)]
+    public async Task TestAppRuntimeBridge_EventTraceCapturesBoundedTextChangedEvent() {
+        var executable = Path.Combine(TestContext.CurrentContext.TestDirectory, "Rhombus.WinFormsMcp.TestApp.exe");
+        using var process = Process.Start(new ProcessStartInfo {
+            FileName = executable,
+            UseShellExecute = false
+        }) ?? throw new InvalidOperationException("Test app could not be started.");
+        using var client = new NamedPipeRuntimeBridgeClient(
+            Options.Create(new McpServerOptions {
+                RuntimeBridgeConnectTimeoutMs = 250,
+                RuntimeBridgeRequestTimeoutMs = 3000
+            }),
+            NullLogger<NamedPipeRuntimeBridgeClient>.Instance);
+
+        try {
+            BridgeStatus? status = null;
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < deadline) {
+                status = await client.GetStatusAsync(process.Id, CancellationToken.None);
+                if (status.Available)
+                    break;
+                await Task.Delay(100);
+            }
+            Assert.That(status?.Available, Is.True, status?.Error);
+
+            var tree = await client.GetControlTreeAsync(process.Id, null, 5, 200, CancellationToken.None);
+            var textBox = Flatten(tree.Roots).Single(node => node.Summary.Identity.Name == "textBox");
+            var trace = await client.StartEventTraceAsync(
+                process.Id,
+                textBox.Summary.Identity.ManagedId,
+                ["TextChanged"],
+                maxEvents: 8,
+                durationMs: 10_000,
+                maxNodes: 1,
+                CancellationToken.None);
+
+            var hwnd = ParseHwnd(textBox.Summary.Identity.Hwnd);
+            Assert.That(hwnd, Is.Not.EqualTo(IntPtr.Zero));
+            var sent = SendMessageTimeout(
+                hwnd,
+                0x000C,
+                IntPtr.Zero,
+                "Runtime trace value",
+                0x0002,
+                1_000,
+                out _);
+            Assert.That(sent, Is.Not.EqualTo(IntPtr.Zero));
+
+            RuntimeEventTraceSnapshot? read = null;
+            var eventDeadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < eventDeadline) {
+                read = await client.ReadEventTraceAsync(process.Id, trace.TraceId, 0, 8, CancellationToken.None);
+                if (read.Events.Count > 0)
+                    break;
+                await Task.Delay(50);
+            }
+            var stopped = await client.StopEventTraceAsync(process.Id, trace.TraceId, CancellationToken.None);
+
+            Assert.Multiple(() => {
+                Assert.That(trace.Active, Is.True);
+                Assert.That(trace.SubscribedControlCount, Is.EqualTo(1));
+                Assert.That(read?.Events, Has.Count.GreaterThanOrEqualTo(1));
+                Assert.That(read?.Events[0].EventName, Is.EqualTo("TextChanged"));
+                Assert.That(read?.Events[0].ControlId, Is.EqualTo(textBox.Summary.Identity.ManagedId));
+                Assert.That(read?.Events[0].Evidence, Does.ContainKey("state"));
+                Assert.That(stopped.Active, Is.False);
             });
         }
         finally {
@@ -616,4 +718,23 @@ public sealed class RuntimeInspectionTests {
 
         return last ?? throw new InvalidOperationException("RuntimeBridge did not return a control inspection.");
     }
+
+    private static IntPtr ParseHwnd(string? value) {
+        if (string.IsNullOrWhiteSpace(value))
+            return IntPtr.Zero;
+        var text = value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? value[2..] : value;
+        return long.TryParse(text, System.Globalization.NumberStyles.HexNumber, null, out var handle)
+            ? new IntPtr(handle)
+            : IntPtr.Zero;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(
+        IntPtr hWnd,
+        uint message,
+        IntPtr wParam,
+        string lParam,
+        uint flags,
+        uint timeout,
+        out IntPtr result);
 }
