@@ -152,7 +152,8 @@ Stage 10 - VS MCP / CodeGraph MCP contract analysis and interoperable source met
 - Stage 8 external Claude Code Review run 32236160617 failed with 401 because the GitHub App is not installed on this fork; no code changes were made for this external-service failure.
 - Stage 8 CI status commit c844c1b: Core CI green (push run 32236718177 and PR run 32236723237); external Claude Code Review run 32236723248 failed with the same missing-App 401.
 - Stage 9 CI status commit 72ab00f: Core CI green (push run 32243431847 and PR run 32243436411); external Claude Code Review run 32243436427 failed with the same missing-App 401.
-- Stage 10 Core CI: pending commit and Draft PR creation.
+- Stage 10 Core CI: green for commit ea615d9 (push run 32246092879 and PR run 32246197318).
+- Stage 10 external Claude Code Review run 32246197161 failed because the Claude Code GitHub App is not installed on this fork; no code changes were made for this external-service failure.
 
 ## Git
 
@@ -166,8 +167,8 @@ Stage 10 - VS MCP / CodeGraph MCP contract analysis and interoperable source met
 - Stage 5 Commit: 700adc8 feat: add AntdUI complex semantic inspection.
 - Stage 6 Commit: cbc300f `feat: support AntdUI layered windows`.
 - Draft PR: #3 targets feature/v14-antdui-provider; Draft PR #4 targets feature/v15-diagnostics with head `feature/v16-source-index`.
-- Draft PR #5: pending creation with base `feature/v16-source-index`.
-- Working Tree: Stage 10 changes ready for commit after the local Gate.
+- Draft PR #5 targets `feature/v16-source-index` with head `feature/v17-contract-analysis`.
+- Working Tree: Stage 10 feature commit is pushed; this CI status update is ready for commit.
 
 ## Risks
 
@@ -182,8 +183,7 @@ Stage 10 - VS MCP / CodeGraph MCP contract analysis and interoperable source met
 
 ## Next
 
-- Commit and push Stage 10, create Draft PR #5, and wait for Windows Core CI.
-- Then create the stacked Stage 11 hardening branch and begin UIA worker isolation/security hardening.
+- Create the stacked Stage 11 hardening branch and begin UIA worker isolation/security hardening.
 
 ## Stage 10 Gate Evidence
 
