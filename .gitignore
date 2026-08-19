@@ -80,3 +80,6 @@ build_output.txt
 # Build artifacts
 nupkg/
 publish/
+
+# Local CodeGraph index
+.codegraph/

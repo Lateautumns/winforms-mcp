@@ -57,6 +57,24 @@ public class RendererProcessPoolTests {
         Assert.That(RendererProcessPool.MapToHostTfm("Net8.0-Windows"), Is.EqualTo("net8.0-windows"));
     }
 
+    [Test]
+    public void BuildReferenceFingerprint_ChangesWhenAssemblyChanges() {
+        var assemblyPath = Path.Combine(Path.GetTempPath(), $"pool-reference-{Guid.NewGuid():N}.dll");
+        try {
+            File.WriteAllText(assemblyPath, "first");
+            var first = RendererProcessPool.BuildReferenceFingerprint([assemblyPath]);
+
+            File.AppendAllText(assemblyPath, "-updated");
+            File.SetLastWriteTimeUtc(assemblyPath, DateTime.UtcNow.AddSeconds(1));
+            var second = RendererProcessPool.BuildReferenceFingerprint([assemblyPath]);
+
+            Assert.That(second, Is.Not.EqualTo(first));
+        }
+        finally {
+            File.Delete(assemblyPath);
+        }
+    }
+
     #endregion
 
     #region TFM Detection from csproj
@@ -199,6 +217,21 @@ public class RendererProcessPoolTests {
         Assert.That(ex.Message, Does.Contain("TFM environment variable"));
     }
 
+    [Test]
+    public void RenderAsync_PreCancelledToken_StopsBeforeStartingHost() {
+        using var pool = CreatePool();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(async () =>
+            await pool.RenderAsync(
+                "content",
+                null,
+                null,
+                "net8.0-windows",
+                cancellationToken: cancellation.Token));
+    }
+
     #endregion
 
     #region E2E Process Pool Rendering
@@ -292,6 +325,36 @@ namespace TestApp {
         // Warm call should be significantly faster (no process spawn overhead)
         Assert.That(sw2.ElapsedMilliseconds, Is.LessThan(sw1.ElapsedMilliseconds),
             $"Warm call ({sw2.ElapsedMilliseconds}ms) should be faster than cold start ({sw1.ElapsedMilliseconds}ms)");
+    }
+
+    [Test]
+    public async Task RenderAsync_RenderFailure_RecreatesHostForNextCall() {
+        var repoRoot = FindRepoRoot(Path.GetDirectoryName(typeof(RendererProcessPool).Assembly.Location)!);
+        var hostBasePath = Path.Combine(
+            repoRoot,
+            "src",
+            "Rhombus.WinFormsMcp.RendererHost",
+            "bin",
+            BuildConfiguration);
+
+        if (!Directory.Exists(Path.Combine(hostBasePath, "net8.0-windows")))
+            Assert.Ignore("RendererHost not built.");
+
+        using var pool = new RendererProcessPool(CreateCache(), CreateOptions(), hostBasePath);
+        var exception = Assert.ThrowsAsync<RendererProcessPool.RendererHostException>(async () =>
+            await pool.RenderAsync("namespace Test { class MissingDesigner { } }", null, null, "net8.0-windows"));
+        Assert.That(exception!.Code, Is.EqualTo("designer_parse_failed"));
+
+        var validDesigner = @"
+namespace Test {
+    partial class Form1 {
+        private void InitializeComponent() {
+            this.ClientSize = new System.Drawing.Size(120, 80);
+        }
+    }
+}";
+        var pngBytes = await pool.RenderAsync(validDesigner, null, null, "net8.0-windows");
+        Assert.That(pngBytes.Take(4), Is.EqualTo(new byte[] { 0x89, 0x50, 0x4E, 0x47 }));
     }
 
     private static string FindRepoRoot(string startDir) {

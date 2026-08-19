@@ -75,6 +75,7 @@ That's it. The agent can now see and interact with any WinForms application on y
 |----------|-------|-------------|
 | **Process** | `launch_app` `attach_to_process` `close_app` `get_process_status` | Start, attach to, and manage Windows processes |
 | **Discovery** | `find_element` `element_exists` `wait_for_element` `get_element_tree` | Locate UI elements by AutomationId, name, class, or control type |
+| **Runtime inspection** | `runtime_status` `get_control_tree` `inspect_control` `get_ancestors` `get_window_tree` `get_bindings` `get_source_mapping` | Read real controls, layout, bindings, HWNDs, and source symbols through the optional RuntimeBridge |
 | **Interaction** | `click_element` `type_text` `set_value` `select_item` `click_menu_item` `drag_drop` `send_keys` | Click buttons, fill text boxes, select combo items, navigate menus |
 | **Visual** | `take_screenshot` `render_form` | Capture running apps or render `.Designer.cs` to PNG |
 
@@ -112,13 +113,58 @@ Set `HEADLESS=true` to launch apps on a hidden Windows desktop (`CreateDesktop` 
 
 > **Note:** `send_keys` and `drag_drop` require input simulation and only work on the visible desktop. Use `type_text`/`set_value` and `click_element` for headless processes.
 
+## RuntimeBridge (read-only inspection)
+
+An application can expose its real managed WinForms tree by referencing
+`Rhombus.WinFormsMcp.RuntimeBridge` and starting it from the UI thread:
+
+```csharp
+using Rhombus.WinFormsMcp.RuntimeBridge;
+
+form.Shown += (_, _) => McpRuntimeBridge.Start();
+form.FormClosed += (_, _) => McpRuntimeBridge.Stop();
+```
+
+The bridge listens on a versioned, per-process named pipe and returns snapshots only.
+It never serializes `Control`, `Form`, or `Binding` instances across the process boundary,
+and all WinForms reads are marshalled to the UI thread. Without a bridge, the existing
+UIA tools continue to work unchanged.
+
 ## Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `HEADLESS` | `false` | Run launched apps on a hidden desktop |
 | `TFM` | `auto` | Lock rendering to a specific framework (`net48`, `netcoreapp3.1`, `net8.0-windows`) |
-| `TELEMETRY_OPTOUT` | `false` | Disable all Application Insights telemetry (matches .NET CLI conventions) |
+| `TELEMETRY_OPTOUT` | `true` | Disable Application Insights telemetry; set to `false` to opt in |
+| `TOOL_TIMEOUT_MS` | `30000` | Maximum duration of one MCP tool call |
+| `RENDERER_TIMEOUT_MS` | `30000` | Maximum duration of one RendererHost render request |
+| `RENDERER_STARTUP_TIMEOUT_MS` | `10000` | Maximum time to wait for RendererHost readiness |
+| `RUNTIME_BRIDGE_ENABLED` | `true` | Enable RuntimeBridge discovery and inspection tools |
+| `RUNTIME_BRIDGE_CONNECT_TIMEOUT_MS` | `1000` | Maximum time to connect to a target process bridge |
+| `RUNTIME_BRIDGE_REQUEST_TIMEOUT_MS` | `5000` | Maximum time to await one RuntimeBridge snapshot |
+
+## Server architecture
+
+The server uses the official `ModelContextProtocol` .NET SDK for stdio transport,
+handshake/capability negotiation, tool discovery, and tool calls. Tool schemas are
+kept in a definition catalog and each of the 40 tools has an independent handler
+registered through a validated `ToolRegistry`.
+
+`AutomationHelper` remains as the public compatibility facade. Process, UIA,
+window, input, screenshot, clipboard, hidden-desktop, and UIA-event behavior is
+implemented by focused services under `Automation/`. Every MCP call has a shared
+timeout and cancellation pipeline, elapsed-time logging, and structured errors.
+
+RendererHost has separate startup and request timeouts. A stuck or invalid host is
+terminated and recreated on the next render. Renderer cache keys include the host
+TFM and referenced DLL metadata, so rebuilding a custom control invalidates stale
+previews.
+
+`Rhombus.WinFormsMcp.RuntimeContracts` contains the framework-neutral Bridge Protocol v1
+DTOs. `Rhombus.WinFormsMcp.RuntimeBridge` targets `net48` and `net8.0-windows`, so it can
+be referenced by the two most common WinForms application families without taking a
+dependency on FlaUI or the MCP Server.
 
 ## Documentation
 

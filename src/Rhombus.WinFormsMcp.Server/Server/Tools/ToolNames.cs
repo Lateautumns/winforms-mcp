@@ -1,0 +1,44 @@
+namespace Rhombus.WinFormsMcp.Server.Tools;
+
+internal static class ToolNames {
+    public const string FindElement = "winforms_find_element";
+    public const string ClickElement = "winforms_click_element";
+    public const string TypeText = "winforms_type_text";
+    public const string SetValue = "winforms_set_value";
+    public const string GetProperty = "winforms_get_property";
+    public const string LaunchApp = "winforms_launch_app";
+    public const string AttachToProcess = "winforms_attach_to_process";
+    public const string CloseApp = "winforms_close_app";
+    public const string GetProcessStatus = "winforms_get_process_status";
+    public const string TakeScreenshot = "winforms_take_screenshot";
+    public const string ElementExists = "winforms_element_exists";
+    public const string WaitForElement = "winforms_wait_for_element";
+    public const string DragDrop = "winforms_drag_drop";
+    public const string SendKeys = "winforms_send_keys";
+    public const string SelectItem = "winforms_select_item";
+    public const string ClickMenuItem = "winforms_click_menu_item";
+    public const string RenderForm = "winforms_render_form";
+    public const string GetElementTree = "winforms_get_element_tree";
+    public const string WaitForCondition = "winforms_wait_for_condition";
+    public const string ToggleElement = "winforms_toggle_element";
+    public const string ScrollElement = "winforms_scroll_element";
+    public const string GetTableData = "winforms_get_table_data";
+    public const string SetTableCell = "winforms_set_table_cell";
+    public const string ManageWindow = "winforms_manage_window";
+    public const string ListWindows = "winforms_list_windows";
+    public const string GetFocusedElement = "winforms_get_focused_element";
+    public const string RaiseEvent = "winforms_raise_event";
+    public const string ListenForEvent = "winforms_listen_for_event";
+    public const string OpenContextMenu = "winforms_open_context_menu";
+    public const string GetClipboard = "winforms_get_clipboard";
+    public const string SetClipboard = "winforms_set_clipboard";
+    public const string ReadTooltip = "winforms_read_tooltip";
+    public const string FindElements = "winforms_find_elements";
+    public const string RuntimeStatus = "winforms_runtime_status";
+    public const string GetControlTree = "winforms_get_control_tree";
+    public const string InspectControl = "winforms_inspect_control";
+    public const string GetAncestors = "winforms_get_ancestors";
+    public const string GetWindowTree = "winforms_get_window_tree";
+    public const string GetBindings = "winforms_get_bindings";
+    public const string GetSourceMapping = "winforms_get_source_mapping";
+}

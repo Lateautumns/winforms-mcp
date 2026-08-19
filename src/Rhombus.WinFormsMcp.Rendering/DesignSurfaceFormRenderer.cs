@@ -87,7 +87,8 @@ public class DesignSurfaceFormRenderer {
     /// </summary>
     public byte[] RenderDesignerCode(string designerContent, string? companionContent = null,
         IEnumerable<string>? extraAssemblyPaths = null, string? projectDir = null) {
-        var cacheKey = ComputeHash(designerContent + (companionContent ?? ""));
+        var extraPaths = extraAssemblyPaths?.ToArray() ?? [];
+        var cacheKey = BuildCacheKey(designerContent, companionContent, extraPaths);
         if (_cache.TryGetValue(cacheKey, out var cached))
             return cached;
 
@@ -98,8 +99,9 @@ public class DesignSurfaceFormRenderer {
 
         // Load extra assemblies into runtime
         _extraAssemblies = [];
-        if (extraAssemblyPaths != null) {
-            foreach (var path in extraAssemblyPaths) {
+        _typeCache.Clear();
+        if (extraPaths.Length > 0) {
+            foreach (var path in extraPaths) {
                 if (!File.Exists(path))
                     continue;
                 try {
@@ -114,13 +116,26 @@ public class DesignSurfaceFormRenderer {
 
         // Parse InitializeComponent
         var tree = CSharpSyntaxTree.ParseText(designerContent);
+        var syntaxErrors = tree.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Take(10)
+            .Select(diagnostic => diagnostic.ToString())
+            .ToArray();
+        if (syntaxErrors.Length > 0) {
+            throw FormRenderErrors.Create(
+                "designer_parse_failed",
+                $"Designer code contains syntax errors: {string.Join("; ", syntaxErrors)}");
+        }
         var root = tree.GetCompilationUnitRoot();
         var initMethod = root.DescendantNodes()
             .OfType<MethodDeclarationSyntax>()
             .FirstOrDefault(m => m.Identifier.Text == "InitializeComponent");
 
-        if (initMethod?.Body == null)
-            throw new InvalidOperationException("InitializeComponent() method not found in designer code.");
+        if (initMethod?.Body == null) {
+            throw FormRenderErrors.Create(
+                "designer_parse_failed",
+                "InitializeComponent() method not found in designer code.");
+        }
 
         // Run DesignSurface operations on STA thread
         byte[]? pngBytes = null;
@@ -136,14 +151,22 @@ public class DesignSurfaceFormRenderer {
         });
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
-        thread.Join(timeout: TimeSpan.FromMilliseconds(10000));
+        if (!thread.Join(timeout: TimeSpan.FromMilliseconds(10000))) {
+            throw FormRenderErrors.Create(
+                "renderer_timeout",
+                "DesignSurface rendering did not finish within 10000ms.");
+        }
 
         if (threadException != null)
-            throw new InvalidOperationException(
-                $"DesignSurface render failed: {threadException.Message}", threadException);
+            throw FormRenderErrors.Create(
+                "control_load_failed",
+                $"DesignSurface/control loading failed: {threadException.Message}",
+                threadException);
 
         if (pngBytes == null)
-            throw new InvalidOperationException("DesignSurface render failed: no output produced.");
+            throw FormRenderErrors.Create(
+                "render_failed",
+                "DesignSurface render failed: no output produced.");
 
         _cache[cacheKey] = pngBytes;
         return pngBytes;
@@ -1147,6 +1170,34 @@ public class DesignSurfaceFormRenderer {
         };
         panel.Controls.Add(label);
         return panel;
+    }
+
+    internal static string BuildCacheKey(
+        string designerContent,
+        string? companionContent,
+        IEnumerable<string>? extraAssemblyPaths) {
+        var input = new StringBuilder();
+        input.AppendLine(AppContext.TargetFrameworkName ?? "unknown-tfm");
+        input.AppendLine(designerContent);
+        input.AppendLine(companionContent ?? "");
+
+        foreach (var path in (extraAssemblyPaths ?? [])
+            .Select(Path.GetFullPath)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)) {
+            input.Append(path);
+            try {
+                var file = new FileInfo(path);
+                input.Append('|').Append(file.Exists ? file.Length : -1);
+                input.Append('|').Append(file.Exists ? file.LastWriteTimeUtc.Ticks : -1);
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException or NotSupportedException) {
+                input.Append("|unavailable");
+            }
+            input.AppendLine();
+        }
+
+        return ComputeHash(input.ToString());
     }
 
     private static string ComputeHash(string content) {

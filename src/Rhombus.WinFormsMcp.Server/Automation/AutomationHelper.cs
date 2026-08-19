@@ -1,16 +1,5 @@
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.Linq;
-using System.Text;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 
-using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Conditions;
 using FlaUI.Core.Definitions;
@@ -21,1768 +10,275 @@ using Microsoft.Extensions.Logging;
 namespace Rhombus.WinFormsMcp.Server.Automation;
 
 /// <summary>
-/// Helper class for WinForms UI automation using FlaUI with UIA2 backend.
-/// When headless, processes are launched on a hidden desktop (CreateDesktop)
-/// for complete UI isolation — no focus stealing, no visible windows.
+/// Backward-compatible facade over the focused automation services.
 /// </summary>
-public class AutomationHelper : IAutomationHelper {
+public sealed class AutomationHelper : IAutomationHelper {
+    // Kept for binary/test compatibility with callers that inspect the legacy field.
     private UIA2Automation? _automation;
-    private readonly Dictionary<string, Process> _launchedProcesses = [];
-    private readonly ConcurrentDictionary<int, StringBuilder> _stderrBuffers = new();
-    private readonly object _lock = new();
 
-    /// <summary>Desktop handle for the hidden desktop (IntPtr.Zero when not headless).</summary>
-    private IntPtr _hiddenDesktop;
-    private const string HiddenDesktopName = "McpAutomation";
-
-    /// <summary>Maps PID → desktop handle. Headless-launched processes get _hiddenDesktop; attached processes get IntPtr.Zero (default desktop).</summary>
-    private readonly ConcurrentDictionary<int, IntPtr> _processDesktops = new();
-
-    /// <summary>Maps PID → HWND found via EnumDesktopWindows (for hidden desktop processes where Process.MainWindowHandle is zero).</summary>
-    private readonly ConcurrentDictionary<int, IntPtr> _processWindows = new();
-
-    /// <summary>Maps PID → native process handle from CreateProcess (for exit code access).</summary>
-    private readonly ConcurrentDictionary<int, IntPtr> _nativeProcessHandles = new();
-
-    private readonly ILogger<AutomationHelper>? _logger;
-
-    public bool Headless { get; }
+    private readonly AutomationRuntimeContext _context;
+    private readonly HeadlessDesktopService _desktopService;
+    private readonly ProcessService _processService;
+    private readonly UiAutomationService _uiAutomationService;
+    private readonly InputService _inputService;
+    private readonly ScreenshotService _screenshotService;
+    private readonly WindowService _windowService;
+    private readonly ClipboardService _clipboardService;
+    private readonly UiAutomationEventService _eventService;
+    private bool _disposed;
 
     public AutomationHelper(bool headless = false, ILogger<AutomationHelper>? logger = null) {
-        Headless = headless;
-        _logger = logger;
-        _automation = new UIA2Automation();
-
-        if (headless) {
-            _hiddenDesktop = NativeMethods.CreateHiddenDesktop(HiddenDesktopName);
-            if (_hiddenDesktop == IntPtr.Zero)
-                throw new InvalidOperationException(
-                    $"Failed to create hidden desktop '{HiddenDesktopName}'. " +
-                    "Headless mode requires the CreateDesktop Win32 API.");
-            _logger?.LogInformation("Headless mode enabled, created hidden desktop: {Desktop}", HiddenDesktopName);
-        }
-    }
-
-    /// <summary>
-    /// Launch a WinForms application.
-    /// When headless, uses CreateProcess to launch on the hidden desktop for complete UI isolation.
-    /// When not headless, uses standard Process.Start on the user's visible desktop.
-    /// </summary>
-    public Process LaunchApp(string path, string? arguments = null, string? workingDirectory = null) {
-        _logger?.LogInformation("Launching process: {Path}", path);
-        Process process;
-
-        if (Headless && _hiddenDesktop != IntPtr.Zero) {
-            // Build command line: quote the path, append arguments
-            var commandLine = string.IsNullOrEmpty(arguments)
-                ? $"\"{path}\""
-                : $"\"{path}\" {arguments}";
-
-            var result = NativeMethods.LaunchOnDesktop(HiddenDesktopName, commandLine, workingDirectory);
-            if (result.Pid < 0)
-                throw new InvalidOperationException($"Failed to launch {path} on hidden desktop");
-
-            // Get the Process object while the native handle is still open (prevents zombie cleanup race)
-            process = Process.GetProcessById(result.Pid);
-            // Keep native handle for exit code access (Process.ExitCode can fail for GetProcessById-obtained objects)
-            _nativeProcessHandles[result.Pid] = result.ProcessHandle;
-            _processDesktops[result.Pid] = _hiddenDesktop;
-
-            // Capture stderr asynchronously (same pattern as the non-headless path)
-            if (result.Stderr != null) {
-                var stderrBuffer = new StringBuilder();
-                _stderrBuffers[result.Pid] = stderrBuffer;
-                var reader = result.Stderr;
-                _ = Task.Run(async () => {
-                    try {
-                        while (true) {
-                            var line = await reader.ReadLineAsync();
-                            if (line == null)
-                                break;
-                            stderrBuffer.AppendLine(line);
-                        }
-                    }
-                    catch { }
-                    finally { reader.Dispose(); }
-                });
-            }
-        }
-        else {
-            var psi = new ProcessStartInfo {
-                FileName = path,
-                Arguments = arguments ?? string.Empty,
-                WorkingDirectory = workingDirectory ?? string.Empty,
-                UseShellExecute = false,
-                CreateNoWindow = false,
-                RedirectStandardError = true,
-                WindowStyle = ProcessWindowStyle.Normal
-            };
-
-            process = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to launch {path}");
-            _processDesktops[process.Id] = IntPtr.Zero; // default desktop
-
-            // Capture stderr asynchronously to avoid deadlocks
-            var stderrBuffer = new StringBuilder();
-            _stderrBuffers[process.Id] = stderrBuffer;
-            process.ErrorDataReceived += (sender, e) => {
-                if (e.Data != null)
-                    stderrBuffer.AppendLine(e.Data);
-            };
-            process.BeginErrorReadLine();
-        }
-
+        _context = new AutomationRuntimeContext();
+        _automation = _context.Automation;
         try {
-            process.WaitForInputIdle(5000);
-        }
-        catch (InvalidOperationException) // COVERAGE_EXCEPTION: Console apps without GUI throw here
-        {
-            // Process does not have a graphical interface (e.g., console app)
-        }
-
-        lock (_lock) {
-            _launchedProcesses[process.Id.ToString()] = process;
-        }
-
-        return process;
-    }
-
-    /// <summary>
-    /// Attach to a running process (on the user's visible desktop).
-    /// </summary>
-    public Process AttachToProcess(int pid) {
-        _logger?.LogInformation("Attaching to process: {Pid}", pid);
-        var process = Process.GetProcessById(pid);
-        _processDesktops[pid] = IntPtr.Zero; // attached processes are always on the default desktop
-        lock (_lock) {
-            _launchedProcesses[pid.ToString()] = process;
-        }
-        return process;
-    }
-
-    /// <summary>
-    /// Attach to a running process by name (on the user's visible desktop).
-    /// </summary>
-    public Process AttachToProcessByName(string name) {
-        var processes = Process.GetProcessesByName(name);
-        if (processes.Length == 0)
-            throw new InvalidOperationException($"No process found with name: {name}");
-
-        var process = processes[0];
-        _processDesktops[process.Id] = IntPtr.Zero;
-        lock (_lock) {
-            _launchedProcesses[process.Id.ToString()] = process;
-        }
-        return process;
-    }
-
-    /// <summary>
-    /// Get main window element of a process.
-    /// For hidden desktop processes, uses EnumDesktopWindows + SetThreadDesktop to find and access the window.
-    /// For default desktop processes, uses Process.MainWindowHandle as before.
-    /// </summary>
-    public AutomationElement? GetMainWindow(int pid) {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        try {
-            var desktop = GetDesktopForProcess(pid);
-
-            if (desktop != IntPtr.Zero) {
-                // Hidden desktop: find HWND via EnumDesktopWindows, access via SetThreadDesktop
-                var hwnd = GetOrFindWindowHandle(pid, desktop);
-                if (hwnd == IntPtr.Zero)
-                    return null;
-
-                return NativeMethods.WithDesktop(desktop, () => _automation.FromHandle(hwnd));
-            }
-
-            // Default desktop: standard path
-            var process = Process.GetProcessById(pid);
-            if (process.MainWindowHandle == IntPtr.Zero)
-                return null;
-            return _automation.FromHandle(process.MainWindowHandle);
+            _desktopService = new HeadlessDesktopService(headless, logger);
         }
         catch {
-            return null;
+            _context.Dispose();
+            _automation = null;
+            throw;
         }
+        _processService = new ProcessService(_desktopService, logger);
+        _uiAutomationService = new UiAutomationService(_context, _desktopService);
+        _inputService = new InputService(_desktopService);
+        _screenshotService = new ScreenshotService(_context, _desktopService);
+        _windowService = new WindowService(_context, _desktopService, _uiAutomationService);
+        _clipboardService = new ClipboardService();
+        _eventService = new UiAutomationEventService(_context);
     }
 
-    /// <summary>
-    /// Get or discover the HWND for a process on a hidden desktop.
-    /// Caches the result for subsequent calls.
-    /// </summary>
-    private IntPtr GetOrFindWindowHandle(int pid, IntPtr desktop) {
-        if (_processWindows.TryGetValue(pid, out var cached) && cached != IntPtr.Zero)
-            return cached;
-
-        var hwnd = NativeMethods.FindWindowOnDesktop(desktop, pid);
-        if (hwnd != IntPtr.Zero)
-            _processWindows[pid] = hwnd;
-        return hwnd;
-    }
-
-    /// <summary>
-    /// Returns the desktop handle for a tracked process, or IntPtr.Zero for the default desktop.
-    /// </summary>
-    private IntPtr GetDesktopForProcess(int pid) {
-        return _processDesktops.TryGetValue(pid, out var desktop) ? desktop : IntPtr.Zero;
-    }
-
-    /// <summary>
-    /// Returns true if the given process is running on the hidden desktop.
-    /// </summary>
-    private bool IsOnHiddenDesktop(int pid) {
-        return GetDesktopForProcess(pid) != IntPtr.Zero;
-    }
-
-    /// <summary>
-    /// Returns true if the given element belongs to a process on the hidden desktop.
-    /// </summary>
-    private bool IsOnHiddenDesktop(AutomationElement element) {
-        try {
-            var pid = element.Properties.ProcessId.ValueOrDefault;
-            return pid > 0 && IsOnHiddenDesktop(pid);
-        }
-        catch {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Throws if the element is on the hidden desktop and the operation requires input simulation.
-    /// </summary>
-    private void ThrowIfHeadless(AutomationElement element, string operation, string? alternative = null) {
-        if (!IsOnHiddenDesktop(element))
-            return;
-        var msg = $"{operation} requires input simulation and is not available for headless processes (the target element belongs to a process on the hidden desktop).";
-        if (alternative != null)
-            msg += $" Use {alternative} instead.";
-        throw new InvalidOperationException(msg);
-    }
-
-    /// <summary>
-    /// Find element by AutomationId
-    /// </summary>
-    public AutomationElement? FindByAutomationId(string automationId, AutomationElement? parent = null, int timeoutMs = 5000) {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        var condition = new PropertyCondition(_automation.PropertyLibrary.Element.AutomationId, automationId);
-        return FindElement(condition, parent, timeoutMs);
-    }
-
-    /// <summary>
-    /// Find element by Name
-    /// </summary>
-    public AutomationElement? FindByName(string name, AutomationElement? parent = null, int timeoutMs = 5000) {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        var condition = new PropertyCondition(_automation.PropertyLibrary.Element.Name, name);
-        return FindElement(condition, parent, timeoutMs);
-    }
-
-    /// <summary>
-    /// Find element by ClassName
-    /// </summary>
-    public AutomationElement? FindByClassName(string className, AutomationElement? parent = null, int timeoutMs = 5000) {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        var condition = new PropertyCondition(_automation.PropertyLibrary.Element.ClassName, className);
-        return FindElement(condition, parent, timeoutMs);
-    }
-
-    /// <summary>
-    /// Find element by ControlType
-    /// </summary>
-    public AutomationElement? FindByControlType(ControlType controlType, AutomationElement? parent = null, int timeoutMs = 5000) {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        var condition = new PropertyCondition(_automation.PropertyLibrary.Element.ControlType, controlType);
-        return FindElement(condition, parent, timeoutMs);
-    }
-
-    /// <summary>
-    /// Find multiple elements matching condition.
-    /// When parent is from a hidden desktop process, UIA queries work because
-    /// GetMainWindow already called SetThreadDesktop before returning the element.
-    /// </summary>
-    public AutomationElement[]? FindAll(ConditionBase condition, AutomationElement? parent = null, int timeoutMs = 5000) {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        var root = parent ?? _automation.GetDesktop();
-        var stopwatch = Stopwatch.StartNew();
-
-        while (stopwatch.ElapsedMilliseconds < timeoutMs) {
-            try {
-                var elements = root.FindAllChildren(condition);
-                if (elements.Length > 0)
-                    return elements;
-            }
-            catch { }
-
-            Thread.Sleep(100);
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Find element with retry/timeout
-    /// </summary>
-    private AutomationElement? FindElement(ConditionBase condition, AutomationElement? parent, int timeoutMs) {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        var root = parent ?? _automation.GetDesktop();
-        var stopwatch = Stopwatch.StartNew();
-
-        while (stopwatch.ElapsedMilliseconds < timeoutMs) {
-            try {
-                var element = root.FindFirstChild(condition);
-                if (element != null)
-                    return element;
-            }
-            catch { }
-
-            Thread.Sleep(100);
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Switch the calling thread to a process's desktop, execute an action, then restore.
-    /// No-op for default desktop processes.
-    /// </summary>
-    public T OnProcessDesktop<T>(int pid, Func<T> action) {
-        var desktop = GetDesktopForProcess(pid);
-        if (desktop != IntPtr.Zero)
-            return NativeMethods.WithDesktop(desktop, action);
-        return action();
-    }
-
-    /// <summary>
-    /// Non-generic overload.
-    /// </summary>
-    public void OnProcessDesktop(int pid, Action action) {
-        var desktop = GetDesktopForProcess(pid);
-        if (desktop != IntPtr.Zero)
-            NativeMethods.WithDesktop(desktop, action);
-        else
-            action();
-    }
-
-    /// <summary>
-    /// Check if element exists
-    /// </summary>
-    public bool ElementExists(string automationId, AutomationElement? parent = null) {
-        return FindByAutomationId(automationId, parent, 1000) != null;
-    }
-
-    /// <summary>
-    /// Click element using UIA InvokePattern (works on hidden desktops).
-    /// Falls back to mouse simulation for double-click or when InvokePattern is unavailable.
-    /// </summary>
-    public void Click(AutomationElement element, bool doubleClick = false) {
-        if (doubleClick) {
-            // No UIA pattern for double-click; requires mouse simulation (default desktop only)
-            ThrowIfHeadless(element, "Double-click", "single click_element (which uses UIA InvokePattern)");
-            element.DoubleClick();
-            return;
-        }
-
-        // Prefer InvokePattern — it's a direct UIA call, works across desktops
-        var invokePattern = element.Patterns.Invoke.PatternOrDefault;
-        if (invokePattern != null) {
-            invokePattern.Invoke();
-            return;
-        }
-
-        // Try TogglePattern for checkboxes/toggle buttons
-        var togglePattern = element.Patterns.Toggle.PatternOrDefault;
-        if (togglePattern != null) {
-            togglePattern.Toggle();
-            return;
-        }
-
-        // Try ExpandCollapsePattern for combo boxes/tree nodes
-        var expandPattern = element.Patterns.ExpandCollapse.PatternOrDefault;
-        if (expandPattern != null) {
-            var state = expandPattern.ExpandCollapseState;
-            if (state == FlaUI.Core.Definitions.ExpandCollapseState.Collapsed)
-                expandPattern.Expand();
-            else
-                expandPattern.Collapse();
-            return;
-        }
-
-        // Fallback: mouse simulation (only works on default desktop)
-        ThrowIfHeadless(element, "click_element (no UIA pattern available for this control)", "get_property to read state, or set_value to change it");
-        element.Click();
-    }
-
-    /// <summary>
-    /// Type text into element using UIA ValuePattern (works on hidden desktops).
-    /// Falls back to SendKeys when ValuePattern is unavailable (default desktop only).
-    /// </summary>
-    public void TypeText(AutomationElement element, string text, bool clearFirst = false) {
-        var valuePattern = element.Patterns.Value.PatternOrDefault;
-        if (valuePattern != null && !valuePattern.IsReadOnly) {
-            if (clearFirst) {
-                valuePattern.SetValue(text);
-            }
-            else {
-                var current = valuePattern.Value ?? "";
-                valuePattern.SetValue(current + text);
-            }
-            return;
-        }
-
-        // Fallback: SendKeys (only works on default/active desktop)
-        ThrowIfHeadless(element, "type_text (ValuePattern not available on this control)", "send_keys on a visible process, or set_value if the control supports ValuePattern");
-        element.Focus();
-        if (clearFirst) {
-            System.Windows.Forms.SendKeys.SendWait("^a");
-            Thread.Sleep(100);
-        }
-        System.Windows.Forms.SendKeys.SendWait(text);
-    }
-
-    /// <summary>
-    /// Set value on element using UIA ValuePattern (works on hidden desktops).
-    /// Falls back to SendKeys when ValuePattern is unavailable (default desktop only).
-    /// </summary>
-    public void SetValue(AutomationElement element, string value) {
-        var valuePattern = element.Patterns.Value.PatternOrDefault;
-        if (valuePattern != null && !valuePattern.IsReadOnly) {
-            valuePattern.SetValue(value);
-            return;
-        }
-
-        // Fallback: SendKeys (only works on default/active desktop)
-        ThrowIfHeadless(element, "set_value (ValuePattern not available or read-only on this control)");
-        element.Focus();
-        System.Windows.Forms.SendKeys.SendWait("^a");
-        Thread.Sleep(50);
-        System.Windows.Forms.SendKeys.SendWait(value);
-    }
-
-    /// <summary>
-    /// Get element property, including UIA pattern-based values.
-    /// Supported properties: name, automationId, className, controlType, isOffscreen, isEnabled,
-    /// value, text, isChecked, toggleState, isSelected, selectedItem, items, itemCount,
-    /// boundingRectangle, isExpanded, min, max, current.
-    /// </summary>
-    public object? GetProperty(AutomationElement element, string propertyName) {
-        return propertyName.ToLower() switch {
-            "name" => element.Name,
-            "automationid" => element.AutomationId,
-            "classname" => element.ClassName,
-            "controltype" => element.ControlType.ToString(),
-            "isoffscreen" => element.IsOffscreen,
-            "isenabled" => element.IsEnabled,
-
-            // ValuePattern: value / text
-            "value" or "text" => GetValuePatternValue(element),
-
-            // TogglePattern: isChecked / toggleState
-            "ischecked" or "togglestate" => GetTogglePatternState(element),
-
-            // SelectionItemPattern: isSelected
-            "isselected" => GetSelectionItemPatternIsSelected(element),
-
-            // SelectionPattern: selectedItem
-            "selecteditem" => GetSelectionPatternSelectedItem(element),
-
-            // Child items: items, itemCount
-            "items" => GetChildItemNames(element),
-            "itemcount" => GetChildItemCount(element),
-
-            // BoundingRectangle
-            "boundingrectangle" => GetBoundingRectangleJson(element),
-
-            // ExpandCollapsePattern: isExpanded
-            "isexpanded" => GetExpandCollapseState(element),
-
-            // RangeValuePattern: min, max, current
-            "min" => GetRangeValueMin(element),
-            "max" => GetRangeValueMax(element),
-            "current" => GetRangeValueCurrent(element),
-
-            _ => null
-        };
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    private static object? GetValuePatternValue(AutomationElement element) {
-        var pattern = element.Patterns.Value;
-        if (pattern.IsSupported)
-            return pattern.Pattern.Value.ValueOrDefault;
-
-        // Fall back to element Name when ValuePattern is not supported
-        return element.Name;
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    private static object? GetTogglePatternState(AutomationElement element) {
-        var pattern = element.Patterns.Toggle;
-        if (pattern.IsSupported)
-            return pattern.Pattern.ToggleState.ValueOrDefault.ToString();
-
-        return "TogglePattern not supported on this element";
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    private static object? GetSelectionItemPatternIsSelected(AutomationElement element) {
-        var pattern = element.Patterns.SelectionItem;
-        if (pattern.IsSupported)
-            return pattern.Pattern.IsSelected.ValueOrDefault;
-
-        return "SelectionItemPattern not supported on this element";
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    private static object? GetSelectionPatternSelectedItem(AutomationElement element) {
-        var pattern = element.Patterns.Selection;
-        if (pattern.IsSupported) {
-            var selection = pattern.Pattern.Selection.ValueOrDefault;
-            if (selection != null && selection.Length > 0)
-                return selection[0].Name;
-            return null;
-        }
-
-        return "SelectionPattern not supported on this element";
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    private static object? GetChildItemNames(AutomationElement element) {
-        var children = element.FindAllChildren();
-        var names = children.Select(c => c.Name ?? "").ToArray();
-        return JsonSerializer.Serialize(names);
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    private static object? GetChildItemCount(AutomationElement element) {
-        var children = element.FindAllChildren();
-        return children.Length;
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    private static object? GetBoundingRectangleJson(AutomationElement element) {
-        var rect = element.BoundingRectangle;
-        return JsonSerializer.Serialize(new {
-            x = rect.X,
-            y = rect.Y,
-            width = rect.Width,
-            height = rect.Height
-        });
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    private static object? GetExpandCollapseState(AutomationElement element) {
-        var pattern = element.Patterns.ExpandCollapse;
-        if (pattern.IsSupported)
-            return pattern.Pattern.ExpandCollapseState.ValueOrDefault.ToString();
-
-        return "ExpandCollapsePattern not supported on this element";
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    private static object? GetRangeValueMin(AutomationElement element) {
-        var pattern = element.Patterns.RangeValue;
-        if (pattern.IsSupported)
-            return pattern.Pattern.Minimum.ValueOrDefault;
-
-        return "RangeValuePattern not supported on this element";
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    private static object? GetRangeValueMax(AutomationElement element) {
-        var pattern = element.Patterns.RangeValue;
-        if (pattern.IsSupported)
-            return pattern.Pattern.Maximum.ValueOrDefault;
-
-        return "RangeValuePattern not supported on this element";
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    private static object? GetRangeValueCurrent(AutomationElement element) {
-        var pattern = element.Patterns.RangeValue;
-        if (pattern.IsSupported)
-            return pattern.Pattern.Value.ValueOrDefault;
-
-        return "RangeValuePattern not supported on this element";
-    }
-
-    /// <summary>
-    /// Take screenshot of element or process window.
-    /// Uses PrintWindow (works on hidden desktops and off-screen windows).
-    /// Falls back to FlaUI Capture for default desktop elements.
-    /// </summary>
-    public void TakeScreenshot(string outputPath, AutomationElement? element = null) {
-        TakeScreenshot(outputPath, element, pid: null);
-    }
-
-    /// <summary>
-    /// Take screenshot with optional PID for PrintWindow-based capture.
-    /// When pid is provided (or element belongs to a hidden-desktop process), uses PrintWindow.
-    /// </summary>
-    public void TakeScreenshot(string outputPath, AutomationElement? element, int? pid) {
-        try {
-            Bitmap? bitmap = null;
-
-            // Try PrintWindow path for any process we know about
-            if (pid != null) {
-                bitmap = CaptureProcessWindow(pid.Value);
-            }
-
-            // Try FlaUI Capture for elements on the default desktop
-            if (bitmap == null && element != null) {
-                try {
-                    bitmap = element.Capture();
-                }
-                catch {
-                    // FlaUI Capture failed (e.g., hidden desktop) — try PrintWindow via element's process
-                    var processId = element.Properties.ProcessId.ValueOrDefault;
-                    if (processId > 0)
-                        bitmap = CaptureProcessWindow(processId);
-                }
-            }
-
-            // Last resort: capture the whole default desktop
-            if (bitmap == null && _automation != null) {
-                var desktopElement = _automation.GetDesktop();
-                bitmap = desktopElement.Capture();
-            }
-
-            if (bitmap != null) {
-                bitmap.Save(outputPath, ImageFormat.Png);
-                bitmap.Dispose();
-            }
-        }
-        catch (Exception ex) {
-            throw new InvalidOperationException($"Failed to take screenshot: {ex.Message}", ex);
-        }
-    }
-
-    /// <summary>
-    /// Capture a process's main window using PrintWindow.
-    /// Works for both hidden desktop and default desktop processes.
-    /// </summary>
-    private Bitmap? CaptureProcessWindow(int pid) {
-        var desktop = GetDesktopForProcess(pid);
-
-        IntPtr hwnd;
-        if (desktop != IntPtr.Zero) {
-            hwnd = GetOrFindWindowHandle(pid, desktop);
-        }
-        else {
-            try {
-                hwnd = Process.GetProcessById(pid).MainWindowHandle;
-            }
-            catch {
-                return null;
-            }
-        }
-
-        return NativeMethods.CaptureWindow(hwnd);
-    }
-
-    /// <summary>
-    /// Drag and drop using mouse simulation.
-    /// NOTE: Only works on the default (visible) desktop. Not available for headless-launched processes.
-    /// </summary>
-    public void DragDrop(AutomationElement source, AutomationElement target) {
-        ThrowIfHeadless(source, "drag_drop", "click_element and set_value sequences");
-        ThrowIfHeadless(target, "drag_drop", "click_element and set_value sequences");
-
-        var sourceBounds = source.BoundingRectangle;
-        var targetBounds = target.BoundingRectangle;
-
-        if (sourceBounds.Width == 0 || targetBounds.Width == 0)
-            throw new InvalidOperationException("Source or target element has invalid bounding rectangle");
-
-        // Simulate drag-drop using mouse movements
-        var sourceCenter = new Point(
-            (int)(sourceBounds.X + sourceBounds.Width / 2),
-            (int)(sourceBounds.Y + sourceBounds.Height / 2)
-        );
-
-        var targetCenter = new Point(
-            (int)(targetBounds.X + targetBounds.Width / 2),
-            (int)(targetBounds.Y + targetBounds.Height / 2)
-        );
-
-        source.Focus();
-        System.Windows.Forms.Cursor.Position = sourceCenter;
-        Thread.Sleep(100);
-
-        // Simulate mouse down, move, mouse up
-        System.Windows.Forms.SendKeys.SendWait("{LDown}");
-        System.Windows.Forms.Cursor.Position = targetCenter;
-        Thread.Sleep(200);
-        System.Windows.Forms.SendKeys.SendWait("{LUp}");
-    }
-
-    /// <summary>
-    /// Send keyboard keys using SendKeys simulation.
-    /// NOTE: Only works on the default (visible) desktop. Not available for headless-launched processes.
-    /// Use type_text/set_value (which use UIA ValuePattern) for text input on headless processes.
-    /// </summary>
-    public void SendKeys(string keys, int? targetPid = null) {
-        if (targetPid != null && IsOnHiddenDesktop(targetPid.Value))
-            throw new InvalidOperationException(
-                "send_keys requires input simulation and is not available for headless processes " +
-                "(the target process is running on the hidden desktop). " +
-                "Use type_text or set_value (which use UIA ValuePattern) for text input on headless processes.");
-        System.Windows.Forms.SendKeys.SendWait(keys);
-    }
-
-    /// <summary>
-    /// Close application
-    /// </summary>
-    public void CloseApp(int pid, bool force = false) {
-        _logger?.LogInformation("Closing process: {Pid}", pid);
-        lock (_lock) {
-            if (_launchedProcesses.TryGetValue(pid.ToString(), out var process)) {
-                try {
-                    if (force) {
-                        process.Kill();
-                    }
-                    else {
-                        process.CloseMainWindow();
-                        process.WaitForExit(5000);
-                        if (!process.HasExited)
-                            process.Kill();
-                    }
-                }
-                catch { }
-                finally {
-                    _launchedProcesses.Remove(pid.ToString());
-                    _stderrBuffers.TryRemove(pid, out _);
-                    _processDesktops.TryRemove(pid, out _);
-                    _processWindows.TryRemove(pid, out _);
-                    if (_nativeProcessHandles.TryRemove(pid, out var nativeHandle))
-                        NativeMethods.CloseNativeHandle(nativeHandle);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Wait for element to appear
-    /// </summary>
-    public async Task<bool> WaitForElementAsync(string automationId, AutomationElement? parent = null, int timeoutMs = 10000) {
-        var stopwatch = Stopwatch.StartNew();
-        while (stopwatch.ElapsedMilliseconds < timeoutMs) {
-            if (FindByAutomationId(automationId, parent, 500) != null)
-                return true;
-
-            await Task.Delay(100);
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Get all child elements
-    /// </summary>
-    public AutomationElement[]? GetAllChildren(AutomationElement element) {
-        try {
-            return element.FindAllChildren();
-        }
-        catch {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Build a tree of UI automation elements starting from a root element.
-    /// </summary>
-    public List<Dictionary<string, object?>> GetElementTree(AutomationElement root, int depth = 3, int maxElements = 50, Func<AutomationElement, string>? cacheElement = null) {
-        var result = new List<Dictionary<string, object?>>();
-        int elementCount = 0;
-        BuildElementTree(root, depth, maxElements, cacheElement, result, ref elementCount);
-        return result;
-    }
-
-    private void BuildElementTree(AutomationElement parent, int remainingDepth, int maxElements, Func<AutomationElement, string>? cacheElement, List<Dictionary<string, object?>> targetList, ref int elementCount) {
-        if (remainingDepth <= 0 || elementCount >= maxElements)
-            return;
-
-        var children = GetAllChildren(parent);
-        if (children == null)
-            return;
-
-        foreach (var child in children) {
-            if (elementCount >= maxElements)
-                break;
-
-            elementCount++;
-
-            var node = new Dictionary<string, object?> {
-                ["name"] = TryGetElementProperty(() => child.Name),
-                ["controlType"] = TryGetElementProperty(() => child.ControlType.ToString()),
-                ["automationId"] = TryGetElementProperty(() => child.AutomationId),
-                ["isEnabled"] = TryGetElementProperty(() => (object)child.IsEnabled),
-                ["isOffscreen"] = TryGetElementProperty(() => (object)child.IsOffscreen),
-            };
-
-            try {
-                var rect = child.BoundingRectangle;
-                node["boundingRectangle"] = new Dictionary<string, object> {
-                    ["x"] = rect.X,
-                    ["y"] = rect.Y,
-                    ["width"] = rect.Width,
-                    ["height"] = rect.Height
-                };
-            }
-            catch {
-                node["boundingRectangle"] = null;
-            }
-
-            if (cacheElement != null) {
-                node["elementId"] = cacheElement(child);
-            }
-
-            var childList = new List<Dictionary<string, object?>>();
-            if (remainingDepth > 1 && elementCount < maxElements) {
-                BuildElementTree(child, remainingDepth - 1, maxElements, cacheElement, childList, ref elementCount);
-            }
-            node["children"] = childList;
-
-            targetList.Add(node);
-        }
-    }
-
-    /// <summary>
-    /// Get the status of a process including whether it is running, responding, exit code, and captured stderr.
-    /// </summary>
-    public Dictionary<string, object?> GetProcessStatus(int pid) {
-        var result = new Dictionary<string, object?>();
-
-        Process? process = null;
-        lock (_lock) {
-            _launchedProcesses.TryGetValue(pid.ToString(), out process);
-        }
-
-        // If not in our tracked processes, try to get it from the system
-        process ??= TryGetProcessById(pid);
-
-        if (process == null) {
-            result["isRunning"] = false;
-            result["hasExited"] = true;
-            result["exitCode"] = null;
-            result["responding"] = false;
-            result["mainWindowTitle"] = "";
-            result["stderr"] = GetStderr(pid);
-            return result;
-        }
-
-        bool hasExited;
-        try {
-            hasExited = process.HasExited;
-        }
-        catch // COVERAGE_EXCEPTION: Process access can throw if handle is invalid
-        {
-            hasExited = true;
-        }
-
-        result["isRunning"] = !hasExited;
-        result["hasExited"] = hasExited;
-
-        if (hasExited) {
-            try {
-                result["exitCode"] = process.ExitCode;
-            }
-            catch {
-                // Process.ExitCode can fail for processes obtained via GetProcessById.
-                // Fall back to native GetExitCodeProcess for CreateProcess-launched processes.
-                if (_nativeProcessHandles.TryGetValue(pid, out var nativeHandle))
-                    result["exitCode"] = NativeMethods.GetExitCode(nativeHandle);
-                else
-                    result["exitCode"] = null;
-            }
-            result["responding"] = false;
-            result["mainWindowTitle"] = "";
-        }
-        else {
-            result["exitCode"] = null;
-            try {
-                result["responding"] = process.Responding;
-            }
-            catch // COVERAGE_EXCEPTION: Responding can throw for processes without a UI
-            {
-                result["responding"] = false;
-            }
-            try {
-                result["mainWindowTitle"] = process.MainWindowTitle ?? "";
-            }
-            catch // COVERAGE_EXCEPTION: MainWindowTitle can throw for some processes
-            {
-                result["mainWindowTitle"] = "";
-            }
-        }
-
-        result["stderr"] = GetStderr(pid);
-        return result;
-    }
-
-    /// <summary>
-    /// Get captured stderr output for a process.
-    /// </summary>
-    internal string GetStderr(int pid) {
-        return _stderrBuffers.TryGetValue(pid, out var buffer) ? buffer.ToString() : "";
-    }
-
-    /// <summary>
-    /// Select an item in a combo box, list box, or similar selection control.
-    /// Handles the expand-find-select pattern automatically.
-    /// </summary>
-    public string SelectItem(AutomationElement element, string? value = null, int? index = null) {
-        if (value == null && index == null)
-            throw new ArgumentException("Either value or index must be provided");
-
-        // COVERAGE_EXCEPTION: FlaUI pattern interactions require real UI controls
-        try {
-            // Try to expand the control first (for combo boxes)
-            var expandPattern = element.Patterns.ExpandCollapse.PatternOrDefault;
-            if (expandPattern != null) {
-                expandPattern.Expand();
-                Thread.Sleep(200); // Wait for dropdown to appear
-            }
-
-            // Get child items
-            var children = element.FindAllChildren();
-            if (children == null || children.Length == 0)
-                throw new InvalidOperationException("No items found in the selection control");
-
-            AutomationElement? targetItem = null;
-
-            if (value != null) {
-                // Find by text value
-                foreach (var child in children) {
-                    try {
-                        if (string.Equals(child.Name, value, StringComparison.OrdinalIgnoreCase)) {
-                            targetItem = child;
-                            break;
-                        }
-                    }
-                    catch { }
-                }
-
-                if (targetItem == null)
-                    throw new InvalidOperationException($"Item with value '{value}' not found in the selection control");
-            }
-            else if (index != null) {
-                if (index.Value < 0 || index.Value >= children.Length)
-                    throw new ArgumentOutOfRangeException(nameof(index), $"Index {index.Value} is out of range. Control has {children.Length} items.");
-
-                targetItem = children[index.Value];
-            }
-
-            // Try SelectionItemPattern first
-            var selectionPattern = targetItem!.Patterns.SelectionItem.PatternOrDefault;
-            if (selectionPattern != null) {
-                selectionPattern.Select();
-            }
-            else {
-                // Fall back to scrolling into view and clicking
-                var scrollPattern = targetItem.Patterns.ScrollItem.PatternOrDefault;
-                if (scrollPattern != null) {
-                    scrollPattern.ScrollIntoView();
-                    Thread.Sleep(100);
-                }
-                targetItem.Click();
-            }
-
-            // Collapse if we expanded
-            if (expandPattern != null) {
-                try { expandPattern.Collapse(); }
-                catch { }
-            }
-
-            return targetItem.Name ?? "";
-        }
-        catch (ArgumentException) { throw; }
-        catch (InvalidOperationException) { throw; }
-        catch (Exception ex) {
-            throw new InvalidOperationException($"Failed to select item: {ex.Message}", ex);
-        }
-    }
-
-    /// <summary>
-    /// Navigate and click a menu item in a menu bar or context menu.
-    /// </summary>
-    public void ClickMenuItem(string[] menuPath, int? pid = null) {
-        if (menuPath == null || menuPath.Length == 0)
-            throw new ArgumentException("menuPath must contain at least one menu item name");
-
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        // COVERAGE_EXCEPTION: FlaUI menu interactions require real UI with menu controls
-        AutomationElement? searchRoot;
-        if (pid != null) {
-            searchRoot = GetMainWindow(pid.Value);
-            if (searchRoot == null)
-                throw new InvalidOperationException($"Could not find main window for process {pid.Value}");
-        }
-        else {
-            searchRoot = _automation.GetDesktop();
-        }
-
-        AutomationElement? currentParent = searchRoot;
-
-        for (int i = 0; i < menuPath.Length; i++) {
-            var menuItemName = menuPath[i];
-            AutomationElement? menuItem = null;
-
-            // Search for menu item by name
-            var condition = new PropertyCondition(_automation.PropertyLibrary.Element.Name, menuItemName);
-            var stopwatch = Stopwatch.StartNew();
-            var timeoutMs = 5000;
-
-            while (stopwatch.ElapsedMilliseconds < timeoutMs) {
-                try {
-                    menuItem = currentParent!.FindFirstDescendant(condition);
-                    if (menuItem != null)
-                        break;
-                }
-                catch { }
-
-                Thread.Sleep(100);
-            }
-
-            if (menuItem == null)
-                throw new InvalidOperationException($"Menu item '{menuItemName}' not found at level {i} of path [{string.Join(" > ", menuPath)}]");
-
-            if (i < menuPath.Length - 1) {
-                // Not the final item - expand/click to show submenu
-                var expandPattern = menuItem.Patterns.ExpandCollapse.PatternOrDefault;
-                if (expandPattern != null) {
-                    expandPattern.Expand();
-                }
-                else {
-                    menuItem.Click();
-                }
-                Thread.Sleep(200); // Wait for submenu to appear
-                currentParent = menuItem;
-            }
-            else {
-                // Final item - invoke or click it
-                var invokePattern = menuItem.Patterns.Invoke.PatternOrDefault;
-                if (invokePattern != null) {
-                    invokePattern.Invoke();
-                }
-                else {
-                    menuItem.Click();
-                }
-            }
-        }
-    }
-
-    private static Process? TryGetProcessById(int pid) {
-        try {
-            return Process.GetProcessById(pid);
-        }
-        catch {
-            return null;
-        }
-    }
-
-    private static object? TryGetElementProperty(Func<object?> getter) {
-        try {
-            return getter();
-        }
-        catch {
-            return null;
-        }
-    }
+    public bool Headless => _desktopService.Headless;
+
+    public Process LaunchApp(string path, string? arguments = null, string? workingDirectory = null) =>
+        _processService.LaunchApp(path, arguments, workingDirectory);
+
+    public Process AttachToProcess(int pid) => _processService.AttachToProcess(pid);
+
+    public Process AttachToProcessByName(string name) => _processService.AttachToProcessByName(name);
+
+    public AutomationElement? GetMainWindow(int pid) => _uiAutomationService.GetMainWindow(pid);
+
+    public AutomationElement? FindByAutomationId(
+        string automationId,
+        AutomationElement? parent = null,
+        int timeoutMs = 5000) =>
+        _uiAutomationService.FindByAutomationId(automationId, parent, timeoutMs);
+
+    public AutomationElement? FindByName(
+        string name,
+        AutomationElement? parent = null,
+        int timeoutMs = 5000) =>
+        _uiAutomationService.FindByName(name, parent, timeoutMs);
+
+    public AutomationElement? FindByClassName(
+        string className,
+        AutomationElement? parent = null,
+        int timeoutMs = 5000) =>
+        _uiAutomationService.FindByClassName(className, parent, timeoutMs);
+
+    public AutomationElement? FindByControlType(
+        ControlType controlType,
+        AutomationElement? parent = null,
+        int timeoutMs = 5000) =>
+        _uiAutomationService.FindByControlType(controlType, parent, timeoutMs);
+
+    public AutomationElement[]? FindAll(
+        ConditionBase condition,
+        AutomationElement? parent = null,
+        int timeoutMs = 5000) =>
+        _uiAutomationService.FindAll(condition, parent, timeoutMs);
+
+    public bool ElementExists(string automationId, AutomationElement? parent = null) =>
+        _uiAutomationService.ElementExists(automationId, parent);
+
+    public void Click(AutomationElement element, bool doubleClick = false) =>
+        _inputService.Click(element, doubleClick);
+
+    public void TypeText(AutomationElement element, string text, bool clearFirst = false) =>
+        _inputService.TypeText(element, text, clearFirst);
+
+    public void SetValue(AutomationElement element, string value) =>
+        _inputService.SetValue(element, value);
+
+    public object? GetProperty(AutomationElement element, string propertyName) =>
+        _uiAutomationService.GetProperty(element, propertyName);
+
+    public void TakeScreenshot(string outputPath, AutomationElement? element = null) =>
+        _screenshotService.TakeScreenshot(outputPath, element);
+
+    public void TakeScreenshot(string outputPath, AutomationElement? element, int? pid) =>
+        _screenshotService.TakeScreenshot(outputPath, element, pid);
+
+    public void DragDrop(AutomationElement source, AutomationElement target) =>
+        _inputService.DragDrop(source, target);
+
+    public void SendKeys(string keys, int? targetPid = null) =>
+        _inputService.SendKeys(keys, targetPid);
+
+    public void CloseApp(int pid, bool force = false) => _processService.CloseApp(pid, force);
+
+    public Task<bool> WaitForElementAsync(
+        string automationId,
+        AutomationElement? parent = null,
+        int timeoutMs = 10000) =>
+        WaitForElementAsync(automationId, parent, timeoutMs, CancellationToken.None);
+
+    public Task<bool> WaitForElementAsync(
+        string automationId,
+        AutomationElement? parent,
+        int timeoutMs,
+        CancellationToken cancellationToken) =>
+        _uiAutomationService.WaitForElementAsync(
+            automationId,
+            parent,
+            timeoutMs,
+            cancellationToken);
+
+    public AutomationElement[]? GetAllChildren(AutomationElement element) =>
+        _uiAutomationService.GetAllChildren(element);
+
+    public Dictionary<string, object?> GetProcessStatus(int pid) =>
+        _processService.GetProcessStatus(pid);
+
+    public string SelectItem(AutomationElement element, string? value = null, int? index = null) =>
+        _uiAutomationService.SelectItem(element, value, index);
+
+    public void ClickMenuItem(string[] menuPath, int? pid = null) =>
+        _uiAutomationService.ClickMenuItem(menuPath, pid);
+
+    public T OnProcessDesktop<T>(int pid, Func<T> action) =>
+        _desktopService.OnProcessDesktop(pid, action);
+
+    public void OnProcessDesktop(int pid, Action action) =>
+        _desktopService.OnProcessDesktop(pid, action);
+
+    public List<Dictionary<string, object?>> GetElementTree(
+        AutomationElement root,
+        int depth = 3,
+        int maxElements = 50,
+        Func<AutomationElement, string>? cacheElement = null) =>
+        _uiAutomationService.GetElementTree(root, depth, maxElements, cacheElement);
+
+    public Task<(bool matched, string? actualValue, long elapsedMs)> WaitForConditionAsync(
+        AutomationElement element,
+        string propertyName,
+        string expectedValue,
+        string comparison = "equals",
+        int timeoutMs = 10000) =>
+        WaitForConditionAsync(
+            element,
+            propertyName,
+            expectedValue,
+            comparison,
+            timeoutMs,
+            CancellationToken.None);
+
+    public Task<(bool matched, string? actualValue, long elapsedMs)> WaitForConditionAsync(
+        AutomationElement element,
+        string propertyName,
+        string expectedValue,
+        string comparison,
+        int timeoutMs,
+        CancellationToken cancellationToken) =>
+        _uiAutomationService.WaitForConditionAsync(
+            element,
+            propertyName,
+            expectedValue,
+            comparison,
+            timeoutMs,
+            cancellationToken);
+
+    public (string previousState, string currentState) Toggle(
+        AutomationElement element,
+        string? desiredState = null) =>
+        _uiAutomationService.Toggle(element, desiredState);
+
+    public Dictionary<string, object> Scroll(
+        AutomationElement element,
+        string direction,
+        int amount = 1,
+        string scrollType = "line") =>
+        _uiAutomationService.Scroll(element, direction, amount, scrollType);
+
+    public Dictionary<string, object?> GetTableData(
+        AutomationElement element,
+        int startRow = 0,
+        int rowCount = 50,
+        int[]? columns = null) =>
+        _uiAutomationService.GetTableData(element, startRow, rowCount, columns);
+
+    public (string? previousValue, string? newValue) SetTableCell(
+        AutomationElement element,
+        int row,
+        int column,
+        string value) =>
+        _uiAutomationService.SetTableCell(element, row, column, value);
+
+    public Dictionary<string, object?> ManageWindow(
+        int pid,
+        string action,
+        int? width = null,
+        int? height = null,
+        int? x = null,
+        int? y = null) =>
+        _windowService.ManageWindow(pid, action, width, height, x, y);
+
+    public List<Dictionary<string, object?>> ListWindows(int pid) =>
+        _windowService.ListWindows(pid);
+
+    public AutomationElement? GetFocusedElement() => _uiAutomationService.GetFocusedElement();
+
+    public string RaiseEvent(AutomationElement element, string eventName) =>
+        _eventService.RaiseEvent(element, eventName);
+
+    public Task<(bool fired, string? eventDetails, long elapsedMs)> ListenForEventAsync(
+        AutomationElement? element,
+        string eventType,
+        int timeoutMs = 10000) =>
+        ListenForEventAsync(element, eventType, timeoutMs, CancellationToken.None);
+
+    public Task<(bool fired, string? eventDetails, long elapsedMs)> ListenForEventAsync(
+        AutomationElement? element,
+        string eventType,
+        int timeoutMs,
+        CancellationToken cancellationToken) =>
+        _eventService.ListenForEventAsync(element, eventType, timeoutMs, cancellationToken);
+
+    public AutomationElement? OpenContextMenu(AutomationElement element) =>
+        _windowService.OpenContextMenu(element);
+
+    public string? GetClipboardText() => _clipboardService.GetText();
+
+    public void SetClipboardText(string text) => _clipboardService.SetText(text);
+
+    public string? GetTooltipText(AutomationElement element) =>
+        _uiAutomationService.GetTooltipText(element);
+
+    public AutomationElement[]? FindAllMatching(
+        string? automationId = null,
+        string? name = null,
+        string? className = null,
+        string? controlType = null,
+        AutomationElement? parent = null,
+        int timeoutMs = 5000) =>
+        _uiAutomationService.FindAllMatching(
+            automationId,
+            name,
+            className,
+            controlType,
+            parent,
+            timeoutMs);
+
+    internal string GetStderr(int pid) => _processService.GetStderr(pid);
 
     public void Dispose() {
-        lock (_lock) {
-            foreach (var process in _launchedProcesses.Values) {
-                try {
-                    if (!process.HasExited)
-                        process.Kill();
-                }
-                catch { }
-            }
+        if (_disposed)
+            return;
+        _disposed = true;
 
-            _launchedProcesses.Clear();
-            _stderrBuffers.Clear();
-            _processDesktops.Clear();
-            _processWindows.Clear();
-            foreach (var handle in _nativeProcessHandles.Values)
-                NativeMethods.CloseNativeHandle(handle);
-            _nativeProcessHandles.Clear();
-        }
-
-        _automation?.Dispose();
+        _processService.Dispose();
+        _context.Dispose();
         _automation = null;
-
-        if (_hiddenDesktop != IntPtr.Zero) {
-            NativeMethods.CloseHiddenDesktop(_hiddenDesktop);
-            _hiddenDesktop = IntPtr.Zero;
-        }
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    public async Task<(bool matched, string? actualValue, long elapsedMs)> WaitForConditionAsync(
-        AutomationElement element, string propertyName, string expectedValue,
-        string comparison = "equals", int timeoutMs = 10000) {
-        var stopwatch = Stopwatch.StartNew();
-        while (stopwatch.ElapsedMilliseconds < timeoutMs) {
-            var value = GetProperty(element, propertyName);
-            var actual = value?.ToString();
-
-            if (CompareValues(actual, expectedValue, comparison))
-                return (true, actual, stopwatch.ElapsedMilliseconds);
-
-            await Task.Delay(100);
-        }
-
-        // Final check
-        var finalValue = GetProperty(element, propertyName)?.ToString();
-        return (CompareValues(finalValue, expectedValue, comparison), finalValue, stopwatch.ElapsedMilliseconds);
-    }
-
-    private static bool CompareValues(string? actual, string expected, string comparison) {
-        return comparison.ToLower() switch {
-            "equals" => string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase),
-            "contains" => actual != null && actual.Contains(expected, StringComparison.OrdinalIgnoreCase),
-            "not_equals" => !string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase),
-            "greater_than" => double.TryParse(actual, out var a) && double.TryParse(expected, out var b) && a > b,
-            "less_than" => double.TryParse(actual, out var c) && double.TryParse(expected, out var d) && c < d,
-            _ => string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase)
-        };
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    public (string previousState, string currentState) Toggle(AutomationElement element, string? desiredState = null) {
-        var togglePattern = element.Patterns.Toggle.PatternOrDefault
-            ?? throw new InvalidOperationException("Element does not support TogglePattern (not a checkbox, radio button, or toggle button)");
-
-        var previousState = togglePattern.ToggleState.ValueOrDefault.ToString();
-
-        if (desiredState == null) {
-            // Just toggle once
-            togglePattern.Toggle();
-        }
-        else {
-            var target = desiredState.ToLower() switch {
-                "on" => ToggleState.On,
-                "off" => ToggleState.Off,
-                "indeterminate" => ToggleState.Indeterminate,
-                _ => throw new ArgumentException($"Invalid desiredState '{desiredState}'. Use 'on', 'off', or 'indeterminate'.")
-            };
-
-            // Toggle until we reach the desired state (max 3 cycles to handle tri-state)
-            for (int i = 0; i < 3; i++) {
-                if (togglePattern.ToggleState.ValueOrDefault == target)
-                    break;
-                togglePattern.Toggle();
-            }
-        }
-
-        var currentState = togglePattern.ToggleState.ValueOrDefault.ToString();
-        return (previousState, currentState);
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    public Dictionary<string, object> Scroll(AutomationElement element, string direction, int amount = 1, string scrollType = "line") {
-        var scrollPattern = element.Patterns.Scroll.PatternOrDefault
-            ?? throw new InvalidOperationException("Element does not support ScrollPattern (not a scrollable control)");
-
-        var scrollAmount = scrollType.ToLower() == "page"
-            ? FlaUI.Core.Definitions.ScrollAmount.LargeIncrement
-            : FlaUI.Core.Definitions.ScrollAmount.SmallIncrement;
-
-        var scrollAmountBack = scrollType.ToLower() == "page"
-            ? FlaUI.Core.Definitions.ScrollAmount.LargeDecrement
-            : FlaUI.Core.Definitions.ScrollAmount.SmallDecrement;
-
-        for (int i = 0; i < amount; i++) {
-            switch (direction.ToLower()) {
-                case "down":
-                    scrollPattern.Scroll(FlaUI.Core.Definitions.ScrollAmount.NoAmount, scrollAmount);
-                    break;
-                case "up":
-                    scrollPattern.Scroll(FlaUI.Core.Definitions.ScrollAmount.NoAmount, scrollAmountBack);
-                    break;
-                case "right":
-                    scrollPattern.Scroll(scrollAmount, FlaUI.Core.Definitions.ScrollAmount.NoAmount);
-                    break;
-                case "left":
-                    scrollPattern.Scroll(scrollAmountBack, FlaUI.Core.Definitions.ScrollAmount.NoAmount);
-                    break;
-                default:
-                    throw new ArgumentException($"Invalid direction '{direction}'. Use up, down, left, or right.");
-            }
-        }
-
-        return new Dictionary<string, object> {
-            ["horizontalPercent"] = scrollPattern.HorizontalScrollPercent.ValueOrDefault,
-            ["verticalPercent"] = scrollPattern.VerticalScrollPercent.ValueOrDefault,
-            ["horizontallyScrollable"] = scrollPattern.HorizontallyScrollable.ValueOrDefault,
-            ["verticallyScrollable"] = scrollPattern.VerticallyScrollable.ValueOrDefault
-        };
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    public Dictionary<string, object?> GetTableData(AutomationElement element, int startRow = 0, int rowCount = 50, int[]? columns = null) {
-        // Try DataGridView first (WinForms-specific), then fall back to Grid (generic UIA)
-        try {
-            var dgv = element.AsDataGridView();
-            var rows = dgv.Rows;
-            var header = dgv.Header;
-
-            var headers = new List<string>();
-            if (header != null) {
-                foreach (var col in header.Columns)
-                    headers.Add(col.Text ?? "");
-            }
-
-            var totalRows = rows.Length;
-            var endRow = Math.Min(startRow + rowCount, totalRows);
-            var resultRows = new List<Dictionary<string, object?>>();
-
-            for (int r = startRow; r < endRow; r++) {
-                var row = rows[r];
-                var cells = row.Cells;
-                var cellValues = new List<string?>();
-
-                if (columns != null) {
-                    foreach (var colIdx in columns) {
-                        if (colIdx < cells.Length)
-                            cellValues.Add(cells[colIdx].Value);
-                        else
-                            cellValues.Add(null);
-                    }
-                }
-                else {
-                    foreach (var cell in cells)
-                        cellValues.Add(cell.Value);
-                }
-
-                resultRows.Add(new Dictionary<string, object?> {
-                    ["rowIndex"] = r,
-                    ["cells"] = cellValues
-                });
-            }
-
-            return new Dictionary<string, object?> {
-                ["rowCount"] = totalRows,
-                ["columnCount"] = headers.Count > 0 ? headers.Count : (rows.Length > 0 ? rows[0].Cells.Length : 0),
-                ["headers"] = headers,
-                ["rows"] = resultRows
-            };
-        }
-        catch {
-            // Fall back to Grid pattern
-            return GetTableDataViaGrid(element, startRow, rowCount, columns);
-        }
-    }
-
-    private Dictionary<string, object?> GetTableDataViaGrid(AutomationElement element, int startRow, int rowCount, int[]? columns) {
-        var grid = element.AsGrid();
-        var header = grid.Header;
-        var rows = grid.Rows;
-
-        var headers = new List<string>();
-        if (header != null) {
-            foreach (var item in header.Columns)
-                headers.Add(item.Name ?? "");
-        }
-
-        var totalRows = rows.Length;
-        var endRow = Math.Min(startRow + rowCount, totalRows);
-        var resultRows = new List<Dictionary<string, object?>>();
-
-        for (int r = startRow; r < endRow; r++) {
-            var row = rows[r];
-            var cells = row.Cells;
-            var cellValues = new List<string?>();
-
-            if (columns != null) {
-                foreach (var colIdx in columns) {
-                    if (colIdx < cells.Length)
-                        cellValues.Add(cells[colIdx].Name ?? cells[colIdx].Properties.Name.ValueOrDefault);
-                    else
-                        cellValues.Add(null);
-                }
-            }
-            else {
-                foreach (var cell in cells)
-                    cellValues.Add(cell.Name ?? cell.Properties.Name.ValueOrDefault);
-            }
-
-            resultRows.Add(new Dictionary<string, object?> {
-                ["rowIndex"] = r,
-                ["cells"] = cellValues
-            });
-        }
-
-        return new Dictionary<string, object?> {
-            ["rowCount"] = totalRows,
-            ["columnCount"] = headers.Count > 0 ? headers.Count : (rows.Length > 0 ? rows[0].Cells.Length : 0),
-            ["headers"] = headers,
-            ["rows"] = resultRows
-        };
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements which cannot be created in unit tests
-    public (string? previousValue, string? newValue) SetTableCell(AutomationElement element, int row, int column, string value) {
-        // Try DataGridView first, then Grid
-        try {
-            var dgv = element.AsDataGridView();
-            var rows = dgv.Rows;
-            if (row >= rows.Length)
-                throw new ArgumentOutOfRangeException(nameof(row), $"Row {row} is out of range (0-{rows.Length - 1})");
-
-            var cells = rows[row].Cells;
-            if (column >= cells.Length)
-                throw new ArgumentOutOfRangeException(nameof(column), $"Column {column} is out of range (0-{cells.Length - 1})");
-
-            var cell = cells[column];
-            var previousValue = cell.Value;
-
-            // Try ValuePattern on the cell
-            var valuePattern = cell.Patterns.Value.PatternOrDefault;
-            if (valuePattern != null && !valuePattern.IsReadOnly) {
-                valuePattern.SetValue(value);
-            }
-            else {
-                // Fall back: click cell to enter edit mode, then set value
-                cell.Click();
-                Thread.Sleep(200);
-
-                // Find the edit control that appeared
-                var editor = cell.FindFirstChild();
-                if (editor != null) {
-                    var editorValuePattern = editor.Patterns.Value.PatternOrDefault;
-                    if (editorValuePattern != null)
-                        editorValuePattern.SetValue(value);
-                }
-            }
-
-            return (previousValue, value);
-        }
-        catch (ArgumentOutOfRangeException) { throw; }
-        catch {
-            return SetTableCellViaGrid(element, row, column, value);
-        }
-    }
-
-    // COVERAGE_EXCEPTION: Window management requires live UIA elements
-    public Dictionary<string, object?> ManageWindow(int pid, string action, int? width = null, int? height = null, int? x = null, int? y = null) {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        var mainWindow = GetMainWindow(pid)
-            ?? throw new InvalidOperationException($"Could not find main window for process {pid}");
-
-        var window = mainWindow.AsWindow();
-        var windowPattern = mainWindow.Patterns.Window.PatternOrDefault;
-        var transformPattern = mainWindow.Patterns.Transform.PatternOrDefault;
-
-        switch (action.ToLower()) {
-            case "maximize":
-                if (windowPattern != null)
-                    windowPattern.SetWindowVisualState(FlaUI.Core.Definitions.WindowVisualState.Maximized);
-                else
-                    throw new InvalidOperationException("Window does not support WindowPattern");
-                break;
-            case "minimize":
-                if (windowPattern != null)
-                    windowPattern.SetWindowVisualState(FlaUI.Core.Definitions.WindowVisualState.Minimized);
-                else
-                    throw new InvalidOperationException("Window does not support WindowPattern");
-                break;
-            case "restore":
-                if (windowPattern != null)
-                    windowPattern.SetWindowVisualState(FlaUI.Core.Definitions.WindowVisualState.Normal);
-                else
-                    throw new InvalidOperationException("Window does not support WindowPattern");
-                break;
-            case "resize":
-                if (transformPattern != null && transformPattern.CanResize.ValueOrDefault)
-                    transformPattern.Resize(width ?? 800, height ?? 600);
-                else
-                    throw new InvalidOperationException("Window does not support resizing via TransformPattern");
-                break;
-            case "move":
-                if (transformPattern != null && transformPattern.CanMove.ValueOrDefault)
-                    transformPattern.Move(x ?? 0, y ?? 0);
-                else
-                    throw new InvalidOperationException("Window does not support moving via TransformPattern");
-                break;
-            case "close":
-                window.Close();
-                break;
-            default:
-                throw new ArgumentException($"Invalid action '{action}'. Use maximize, minimize, restore, resize, move, or close.");
-        }
-
-        // Return current state
-        var rect = mainWindow.BoundingRectangle;
-        var state = windowPattern?.WindowVisualState.ValueOrDefault.ToString() ?? "unknown";
-        return new Dictionary<string, object?> {
-            ["windowState"] = state,
-            ["boundingRectangle"] = new Dictionary<string, int> {
-                ["x"] = (int)rect.X,
-                ["y"] = (int)rect.Y,
-                ["width"] = (int)rect.Width,
-                ["height"] = (int)rect.Height
-            }
-        };
-    }
-
-    // COVERAGE_EXCEPTION: Window enumeration requires live processes
-    public List<Dictionary<string, object?>> ListWindows(int pid) {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        var desktop = GetDesktopForProcess(pid);
-        var results = new List<Dictionary<string, object?>>();
-
-        if (desktop != IntPtr.Zero) {
-            // Hidden desktop: enumerate via EnumDesktopWindows
-            NativeMethods.WithDesktop(desktop, () => {
-                var desktopElement = _automation.GetDesktop();
-                var condition = new PropertyCondition(
-                    _automation.PropertyLibrary.Element.ProcessId, pid);
-                var windows = desktopElement.FindAllChildren(condition);
-
-                foreach (var win in windows) {
-                    var rect = win.BoundingRectangle;
-                    results.Add(new Dictionary<string, object?> {
-                        ["title"] = win.Name,
-                        ["className"] = win.ClassName,
-                        ["isVisible"] = !win.IsOffscreen,
-                        ["controlType"] = win.ControlType.ToString(),
-                        ["boundingRectangle"] = new Dictionary<string, int> {
-                            ["x"] = (int)rect.X,
-                            ["y"] = (int)rect.Y,
-                            ["width"] = (int)rect.Width,
-                            ["height"] = (int)rect.Height
-                        }
-                    });
-                }
-                return 0;
-            });
-        }
-        else {
-            // Default desktop: use standard UIA tree
-            var desktopElement = _automation.GetDesktop();
-            var condition = new PropertyCondition(
-                _automation.PropertyLibrary.Element.ProcessId, pid);
-            var windows = desktopElement.FindAllChildren(condition);
-
-            foreach (var win in windows) {
-                var rect = win.BoundingRectangle;
-                results.Add(new Dictionary<string, object?> {
-                    ["title"] = win.Name,
-                    ["className"] = win.ClassName,
-                    ["isVisible"] = !win.IsOffscreen,
-                    ["controlType"] = win.ControlType.ToString(),
-                    ["boundingRectangle"] = new Dictionary<string, int> {
-                        ["x"] = (int)rect.X,
-                        ["y"] = (int)rect.Y,
-                        ["width"] = (int)rect.Width,
-                        ["height"] = (int)rect.Height
-                    }
-                });
-            }
-        }
-
-        return results;
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements
-    public string RaiseEvent(AutomationElement element, string eventName) {
-        switch (eventName.ToLower()) {
-            case "invoke":
-                var invokePattern = element.Patterns.Invoke.PatternOrDefault
-                    ?? throw new InvalidOperationException("Element does not support InvokePattern");
-                invokePattern.Invoke();
-                return "Invoked";
-            case "toggle":
-                var togglePattern = element.Patterns.Toggle.PatternOrDefault
-                    ?? throw new InvalidOperationException("Element does not support TogglePattern");
-                togglePattern.Toggle();
-                return $"Toggled to {togglePattern.ToggleState.ValueOrDefault}";
-            case "expand":
-                var expandPattern = element.Patterns.ExpandCollapse.PatternOrDefault
-                    ?? throw new InvalidOperationException("Element does not support ExpandCollapsePattern");
-                expandPattern.Expand();
-                return "Expanded";
-            case "collapse":
-                var collapsePattern = element.Patterns.ExpandCollapse.PatternOrDefault
-                    ?? throw new InvalidOperationException("Element does not support ExpandCollapsePattern");
-                collapsePattern.Collapse();
-                return "Collapsed";
-            case "select":
-                var selectionPattern = element.Patterns.SelectionItem.PatternOrDefault
-                    ?? throw new InvalidOperationException("Element does not support SelectionItemPattern");
-                selectionPattern.Select();
-                return "Selected";
-            case "scroll_into_view":
-                var scrollItemPattern = element.Patterns.ScrollItem.PatternOrDefault
-                    ?? throw new InvalidOperationException("Element does not support ScrollItemPattern");
-                scrollItemPattern.ScrollIntoView();
-                return "Scrolled into view";
-            default:
-                throw new ArgumentException(
-                    $"Unknown event '{eventName}'. Supported: invoke, toggle, expand, collapse, select, scroll_into_view");
-        }
-    }
-
-    // COVERAGE_EXCEPTION: UIA event handlers require live automation and COM management
-    public async Task<(bool fired, string? eventDetails, long elapsedMs)> ListenForEventAsync(
-        AutomationElement? element, string eventType, int timeoutMs = 10000) {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        // UIA event registration has COM threading requirements that make it fragile.
-        // We use a polling-based approach instead, which is more reliable:
-        // - focus_changed: poll FocusedElement
-        // - structure_changed: poll child count
-        // - property_changed: use wait_for_condition instead (recommend to caller)
-        var stopwatch = Stopwatch.StartNew();
-
-        switch (eventType.ToLower()) {
-            case "focus_changed": {
-                    var initialFocused = _automation.FocusedElement();
-                    var initialName = initialFocused?.Name ?? "";
-                    var initialId = initialFocused?.AutomationId ?? "";
-
-                    while (stopwatch.ElapsedMilliseconds < timeoutMs) {
-                        await Task.Delay(100);
-                        try {
-                            var current = _automation.FocusedElement();
-                            var currentName = current?.Name ?? "";
-                            var currentId = current?.AutomationId ?? "";
-                            if (currentName != initialName || currentId != initialId)
-                                return (true, $"Focus changed to: {currentName} ({current?.ControlType})", stopwatch.ElapsedMilliseconds);
-                        }
-                        catch { /* element may be gone */ }
-                    }
-                    return (false, null, stopwatch.ElapsedMilliseconds);
-                }
-
-            case "structure_changed": {
-                    var root = element ?? _automation.GetDesktop();
-                    int initialCount;
-                    try { initialCount = root.FindAllChildren().Length; }
-                    catch { initialCount = 0; }
-
-                    while (stopwatch.ElapsedMilliseconds < timeoutMs) {
-                        await Task.Delay(100);
-                        try {
-                            var currentCount = root.FindAllChildren().Length;
-                            if (currentCount != initialCount)
-                                return (true, $"Child count changed from {initialCount} to {currentCount}", stopwatch.ElapsedMilliseconds);
-                        }
-                        catch { /* element may be gone */ }
-                    }
-                    return (false, null, stopwatch.ElapsedMilliseconds);
-                }
-
-            case "property_changed":
-                // Property changes are better served by wait_for_condition
-                return (false, "Use wait_for_condition for property change detection — it provides comparison operators and specific property targeting", 0);
-
-            default:
-                throw new ArgumentException(
-                    $"Unknown event type '{eventType}'. Supported: focus_changed, structure_changed, property_changed");
-        }
-    }
-
-    // COVERAGE_EXCEPTION: Context menu operations require live UIA elements
-    public AutomationElement? OpenContextMenu(AutomationElement element) {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        var pid = element.Properties.ProcessId.ValueOrDefault;
-
-        if (IsOnHiddenDesktop(pid)) {
-            // Hidden desktop: use WM_CONTEXTMENU message (works across desktops)
-            var hwnd = (IntPtr)element.Properties.NativeWindowHandle.ValueOrDefault;
-            if (hwnd == IntPtr.Zero) {
-                // Element doesn't have its own HWND — try the parent window
-                hwnd = GetOrFindWindowHandle(pid, GetDesktopForProcess(pid));
-            }
-            if (hwnd != IntPtr.Zero) {
-                NativeMethods.SendContextMenuMessage(hwnd);
-                Thread.Sleep(300);
-            }
-        }
-        else {
-            // Default desktop: try mouse right-click (most reliable for visible windows)
-            element.RightClick();
-            Thread.Sleep(300);
-        }
-
-        // Find the context menu that appeared
-        var menuCondition = new PropertyCondition(
-            _automation.PropertyLibrary.Element.ControlType,
-            FlaUI.Core.Definitions.ControlType.Menu);
-
-        // Search on the correct desktop
-        AutomationElement[]? menus = null;
-        if (IsOnHiddenDesktop(pid)) {
-            menus = OnProcessDesktop(pid, () => {
-                var desktop = _automation!.GetDesktop();
-                return desktop.FindAllChildren(menuCondition);
-            });
-        }
-        else {
-            var desktop = _automation.GetDesktop();
-            var stopwatch = Stopwatch.StartNew();
-            while (stopwatch.ElapsedMilliseconds < 2000) {
-                menus = desktop.FindAllChildren(menuCondition);
-                if (menus.Length > 0)
-                    break;
-                Thread.Sleep(100);
-            }
-        }
-
-        if (menus != null && menus.Length > 0)
-            return menus[^1]; // Return the most recently opened menu
-
-        return null;
-    }
-
-    // COVERAGE_EXCEPTION: Clipboard requires STA thread and live Windows session
-    public string? GetClipboardText() {
-        string? result = null;
-        var thread = new Thread(() => {
-            try {
-                if (System.Windows.Forms.Clipboard.ContainsText())
-                    result = System.Windows.Forms.Clipboard.GetText();
-            }
-            catch { /* clipboard may be locked */ }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join(3000);
-        return result;
-    }
-
-    // COVERAGE_EXCEPTION: Clipboard requires STA thread and live Windows session
-    public void SetClipboardText(string text) {
-        var thread = new Thread(() => {
-            try {
-                System.Windows.Forms.Clipboard.SetText(text);
-            }
-            catch { /* clipboard may be locked */ }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join(3000);
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements
-    public string? GetTooltipText(AutomationElement element) {
-        // Try HelpText property first (most common for tooltips)
-        try {
-            var helpText = element.Properties.HelpText.ValueOrDefault;
-            if (!string.IsNullOrEmpty(helpText))
-                return helpText;
-        }
-        catch { /* not available */ }
-
-        // Try LegacyIAccessible description
-        var legacyPattern = element.Patterns.LegacyIAccessible.PatternOrDefault;
-        if (legacyPattern != null) {
-            try {
-                var description = legacyPattern.Description.ValueOrDefault;
-                if (!string.IsNullOrEmpty(description))
-                    return description;
-            }
-            catch { /* not available */ }
-        }
-
-        // Try finding a tooltip child/popup
-        try {
-            element.Focus();
-            Thread.Sleep(500); // Wait for tooltip to appear
-
-            if (_automation == null)
-                return null;
-            var desktop = _automation.GetDesktop();
-            var tooltipCondition = new PropertyCondition(
-                _automation.PropertyLibrary.Element.ControlType,
-                FlaUI.Core.Definitions.ControlType.ToolTip);
-            var tooltip = desktop.FindFirstChild(tooltipCondition);
-            if (tooltip != null)
-                return tooltip.Name;
-        }
-        catch { /* tooltip search failed */ }
-
-        return null;
-    }
-
-    // COVERAGE_EXCEPTION: Pattern-based methods require live UIA elements
-    public AutomationElement[]? FindAllMatching(string? automationId = null, string? name = null,
-        string? className = null, string? controlType = null, AutomationElement? parent = null, int timeoutMs = 5000) {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        ConditionBase condition;
-        if (automationId != null)
-            condition = new PropertyCondition(_automation.PropertyLibrary.Element.AutomationId, automationId);
-        else if (name != null)
-            condition = new PropertyCondition(_automation.PropertyLibrary.Element.Name, name);
-        else if (className != null)
-            condition = new PropertyCondition(_automation.PropertyLibrary.Element.ClassName, className);
-        else if (controlType != null) {
-            var ct = Enum.Parse<ControlType>(controlType, true);
-            condition = new PropertyCondition(_automation.PropertyLibrary.Element.ControlType, ct);
-        }
-        else
-            throw new ArgumentException("At least one search criterion (automationId, name, className, controlType) is required");
-
-        return FindAll(condition, parent, timeoutMs);
-    }
-
-    // COVERAGE_EXCEPTION: Focus operations require live UIA desktop
-    public AutomationElement? GetFocusedElement() {
-        if (_automation == null)
-            throw new ObjectDisposedException(nameof(AutomationHelper));
-
-        try {
-            return _automation.FocusedElement();
-        }
-        catch {
-            return null;
-        }
-    }
-
-    private (string? previousValue, string? newValue) SetTableCellViaGrid(AutomationElement element, int row, int column, string value) {
-        var grid = element.AsGrid();
-        var rows = grid.Rows;
-        if (row >= rows.Length)
-            throw new ArgumentOutOfRangeException(nameof(row), $"Row {row} is out of range (0-{rows.Length - 1})");
-
-        var cells = rows[row].Cells;
-        if (column >= cells.Length)
-            throw new ArgumentOutOfRangeException(nameof(column), $"Column {column} is out of range (0-{cells.Length - 1})");
-
-        var cell = cells[column];
-        var previousValue = cell.Name;
-
-        var valuePattern = cell.Patterns.Value.PatternOrDefault;
-        if (valuePattern != null && !valuePattern.IsReadOnly) {
-            valuePattern.SetValue(value);
-        }
-
-        return (previousValue, value);
+        _desktopService.Dispose();
     }
 }

@@ -63,21 +63,35 @@ dotnet pack src/Rhombus.WinFormsMcp.Server/Rhombus.WinFormsMcp.Server.csproj -c 
 ### Core Components
 
 1. **Rhombus.WinFormsMcp.Server** (src/Rhombus.WinFormsMcp.Server/)
-   - `Program.cs`: MCP server implementation with JSON-RPC 2.0 over stdio transport. Contains 33 tool implementations and SessionManager for element caching.
-   - `Automation/AutomationHelper.cs`: Core FlaUI wrapper with 40+ automation methods. Provides process management, element discovery, UI interaction, validation, window management, clipboard, and event capabilities.
+   - `Program.cs`: Host and dependency-injection composition root.
+   - `Server/McpServerRegistration.cs`: Official ModelContextProtocol SDK stdio server registration and protocol handlers.
+   - `Server/ToolRegistry.cs`: Validates tool definitions/handlers and applies cancellation, timeout, timing, telemetry, and structured-error behavior.
+   - `Server/Tools/`: Separate definition catalog plus one handler per MCP tool, grouped by Process, Automation, Inspection, Rendering, and Diagnostics.
+   - `Automation/AutomationHelper.cs`: Backward-compatible facade over focused process, UIA, input, screenshot, window, clipboard, hidden-desktop, and event services.
 
-2. **Rhombus.WinFormsMcp.TestApp** (src/Rhombus.WinFormsMcp.TestApp/)
+2. **Rhombus.WinFormsMcp.Rendering / RendererHost**
+   - DesignSurface renderer and TFM-specific out-of-process hosts.
+   - Hosts are terminated on startup/request timeout or protocol failure and recreated on demand.
+   - Render cache keys include designer content, companion content, runtime TFM, and referenced DLL metadata.
+
+3. **Rhombus.WinFormsMcp.TestApp** (src/Rhombus.WinFormsMcp.TestApp/)
    - Sample WinForms application with various controls for testing automation capabilities.
 
-3. **Rhombus.WinFormsMcp.Tests** (tests/Rhombus.WinFormsMcp.Tests/)
+4. **Rhombus.WinFormsMcp.Tests** (tests/Rhombus.WinFormsMcp.Tests/)
    - NUnit test suite covering AutomationHelper functionality, process lifecycle, element operations, and resource cleanup.
+
+5. **RuntimeContracts / RuntimeBridge**
+   - `RuntimeContracts` is a UI-framework-neutral Protocol v1 DTO assembly targeting `netstandard2.0`.
+   - `RuntimeBridge` targets `net48` and `net8.0-windows`; target applications opt in with `McpRuntimeBridge.Start()`.
+   - The bridge is read-only, uses a per-process Named Pipe, and marshals every Control read to the WinForms UI thread.
+   - The server receives snapshots only; `Control`, `Binding`, and other live objects never cross the process boundary.
 
 ### Key Technical Decisions
 
 - **Framework**: .NET 8.0 Windows-specific (net8.0-windows) for WinForms compatibility
 - **UI Automation**: FlaUI 4.0.0 with UIA2 backend for maximum WinForms compatibility without visual requirements
 - **Testing**: NUnit 3.14.0 with Moq for mocking
-- **Protocol**: MCP with stdio transport, single-line JSON-RPC 2.0 messages
+- **Protocol**: Official `ModelContextProtocol` .NET SDK with stdio transport
 - **Package Distribution**: NuGet (Rhombus.WinFormsMcp), NPM (@fnrhombus/winforms-mcp)
 
 ### Code Organization
@@ -90,7 +104,7 @@ dotnet pack src/Rhombus.WinFormsMcp.Server/Rhombus.WinFormsMcp.Server.csproj -c 
 
 ### MCP Tools Available
 
-The server implements 33 tools via JSON-RPC:
+The server implements 40 tools via JSON-RPC:
 - Process Management: `launch_app`, `attach_to_process`, `close_app`, `get_process_status`
 - Element Discovery: `find_element`, `find_elements`, `element_exists`, `wait_for_element`, `get_element_tree`
 - UI Interaction: `click_element`, `type_text`, `set_value`, `drag_drop`, `send_keys`, `select_item`, `click_menu_item`, `toggle_element`
@@ -100,6 +114,7 @@ The server implements 33 tools via JSON-RPC:
 - Events: `raise_event`, `listen_for_event`, `open_context_menu`
 - Visual: `take_screenshot`, `render_form`
 - Clipboard & Misc: `get_clipboard`, `set_clipboard`, `read_tooltip`
+- Runtime inspection: `runtime_status`, `get_control_tree`, `inspect_control`, `get_ancestors`, `get_window_tree`, `get_bindings`, `get_source_mapping`
 
 ### Session Management
 
@@ -125,10 +140,23 @@ See the [Headless Mode wiki page](https://github.com/fnrhombus/winforms-mcp/wiki
 
 ### Error Handling
 
-- All operations wrapped in try-catch blocks
-- Default timeout: 5000ms for find operations, 10000ms for async waits
+- Every tool receives a `CancellationToken` and runs under `TOOL_TIMEOUT_MS` (default 30000ms)
+- UIA wait/event polling and RendererHost I/O observe cancellation directly
+- Renderer startup and requests use `RENDERER_STARTUP_TIMEOUT_MS` and `RENDERER_TIMEOUT_MS`
+- Tool failures return structured `code`, `message`, `exceptionType`, `retryable`, and `elapsedMs` fields
+- Application Insights telemetry is disabled by default (`TELEMETRY_OPTOUT=true`); set it to `false` to opt in
+- Default timeout: 5000ms for synchronous find operations, 10000ms for async waits
 - Retry mechanism: 100ms intervals for element discovery
 - Resource cleanup via IDisposable pattern
+
+### Runtime inspection boundaries
+
+- RuntimeBridge Protocol v1 uses newline-delimited JSON over `winforms-mcp-runtime-<pid>`.
+- Managed trees are bounded by `maxDepth` and `maxNodes`; truncated responses are explicit.
+- Properties use a safe default whitelist; `includeProperties` adds requested names and each getter failure is isolated.
+- `inspect_control` can correlate a managed identity to the legacy UIA cache, but UIA remains the action layer.
+- Source mapping is read-only and bounded to source files under the requested/inferred root; output symbols use `Namespace.Type.Method` form.
+- Bridge absence, disconnect, timeout, or process mismatch returns a structured error and never disables the existing 33 UIA tools.
 
 ## Git Workflow
 

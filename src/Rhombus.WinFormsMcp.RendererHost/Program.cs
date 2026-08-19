@@ -48,9 +48,13 @@ class Program {
                     }
                 }
                 catch (Exception ex) {
+                    Console.Error.WriteLine(ex);
                     response = JsonSerializer.Serialize(new RenderResponse {
                         Success = false,
-                        Error = ex.Message
+                        ErrorCode = FormRenderErrors.GetCode(ex) ?? "renderer_internal_error",
+                        Error = ex.Message,
+                        ExceptionType = ex.GetType().FullName,
+                        Details = ex.ToString()
                     }, JsonOptions.Default);
                 }
 
@@ -104,7 +108,10 @@ class RenderRequest {
 class RenderResponse {
     public bool Success { get; set; }
     public string? PngBase64 { get; set; }
+    public string? ErrorCode { get; set; }
     public string? Error { get; set; }
+    public string? ExceptionType { get; set; }
+    public string? Details { get; set; }
 }
 
 static class JsonOptions {

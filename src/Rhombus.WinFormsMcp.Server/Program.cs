@@ -15,6 +15,7 @@ using Microsoft.Extensions.Options;
 
 using Rhombus.WinFormsMcp.Rendering;
 using Rhombus.WinFormsMcp.Server.Automation;
+using Rhombus.WinFormsMcp.Server.Runtime;
 
 namespace Rhombus.WinFormsMcp.Server;
 
@@ -38,6 +39,9 @@ class Program {
                     return new AutomationHelper(opts.Value.Headless, sp.GetRequiredService<ILogger<AutomationHelper>>());
                 });
                 services.AddSingleton<ISessionManager, SessionManager>();
+                services.AddSingleton<IRuntimeBridgeClient, NamedPipeRuntimeBridgeClient>();
+                services.AddSingleton<SourceMappingService>();
+                services.AddSingleton<ManagedUiaCorrelationService>();
                 services.AddSingleton<RendererProcessPool>();
 
                 services.AddSingleton(sp => {
@@ -49,7 +53,7 @@ class Program {
                 services.AddSingleton<NullTelemetry>();
                 services.AddSingleton<Telemetry>();
 
-                services.AddHostedService<AutomationServer>();
+                services.AddWinFormsMcpServer();
             })
             .ConfigureLogging((context, logging) => {
                 logging.ClearProviders();

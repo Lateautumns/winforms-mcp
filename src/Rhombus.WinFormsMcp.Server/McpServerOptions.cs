@@ -7,7 +7,13 @@ namespace Rhombus.WinFormsMcp.Server;
 /// </summary>
 public class McpServerOptions {
     public bool Headless { get; set; }
-    public bool TelemetryOptOut { get; set; }
+    public bool TelemetryOptOut { get; set; } = true;
     public string Tfm { get; set; } = "auto";
     public LogLevel MinimumLogLevel { get; set; } = LogLevel.Information;
+    public int ToolTimeoutMs { get; set; } = 30000;
+    public int RendererTimeoutMs { get; set; } = 30000;
+    public int RendererStartupTimeoutMs { get; set; } = 10000;
+    public bool RuntimeBridgeEnabled { get; set; } = true;
+    public int RuntimeBridgeConnectTimeoutMs { get; set; } = 1000;
+    public int RuntimeBridgeRequestTimeoutMs { get; set; } = 5000;
 }

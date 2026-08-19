@@ -15,6 +15,7 @@ using Moq;
 using Rhombus.WinFormsMcp.Rendering;
 using Rhombus.WinFormsMcp.Server;
 using Rhombus.WinFormsMcp.Server.Automation;
+using Rhombus.WinFormsMcp.Server.Tools;
 
 /// <summary>
 /// Tests for the take_screenshot tool's base64 image return behavior.
@@ -188,52 +189,9 @@ public class TakeScreenshotTests {
     /// </summary>
     [Test]
     public async Task ToolDefinition_OutputPathIsOptional() {
-        // Arrange: create server and capture its output via JSON-RPC
-        var inputWriter = new StringWriter();
-        var outputReader = new StringReader("");
-
-        // Use reflection or instantiate AutomationServer to check tool definitions
-        var automation = new AutomationHelper(headless: true);
-        var session = new SessionManager(automation);
-        var rendererPool = new RendererProcessPool(new MemoryCache(new MemoryCacheOptions()), Options.Create(new McpServerOptions()));
-        var telemetry = new NullTelemetry();
-        var lifetime = new Mock<IHostApplicationLifetime>().Object;
-        var server = new AutomationServer(session, rendererPool, telemetry, lifetime, NullLogger<AutomationServer>.Instance);
-
-        // We test by sending an initialize + tools/list request through the server
-        // But since RunAsync reads from Console.In, we'll test by checking the
-        // tool definition structure directly via a simulated tools/list call.
-
-        // Build a tools/list JSON-RPC request
-        var request = JsonDocument.Parse("{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/list\", \"params\": {}}").RootElement;
-
-        // Use reflection to call ProcessRequest
-        var processRequestMethod = typeof(AutomationServer).GetMethod(
-            "ProcessRequest",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-        Assert.That(processRequestMethod, Is.Not.Null, "ProcessRequest method should be accessible");
-
-        var resultTask = (Task<object>)processRequestMethod!.Invoke(server, new object[] { request, (object)1 })!;
-        var result = await resultTask;
-
-        // Serialize and re-parse to inspect
-        var json = JsonSerializer.Serialize(result);
-        var doc = JsonDocument.Parse(json);
-        var tools = doc.RootElement.GetProperty("result").GetProperty("tools");
-
-        // Find the take_screenshot tool
-        JsonElement? screenshotTool = null;
-        foreach (var tool in tools.EnumerateArray()) {
-            if (tool.GetProperty("name").GetString() == "winforms_take_screenshot") {
-                screenshotTool = tool;
-                break;
-            }
-        }
-
-        Assert.That(screenshotTool, Is.Not.Null, "winforms_take_screenshot tool should exist");
-
-        var schema = screenshotTool!.Value.GetProperty("inputSchema");
+        await Task.CompletedTask;
+        var screenshotTool = ToolDefinitionCatalog.All.Single(tool => tool.Name == ToolNames.TakeScreenshot);
+        var schema = screenshotTool.InputSchema;
 
         // Verify outputPath is NOT in the required array (or required doesn't exist)
         if (schema.TryGetProperty("required", out var required)) {
@@ -247,7 +205,7 @@ public class TakeScreenshotTests {
         // If 'required' property doesn't exist at all, that's also correct
 
         // Verify description mentions returning image directly
-        var description = screenshotTool!.Value.GetProperty("description").GetString();
+        var description = screenshotTool.Description;
         Assert.That(description, Does.Contain("base64").IgnoreCase,
             "Description should mention base64 image return");
     }

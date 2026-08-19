@@ -453,6 +453,24 @@ namespace Test {
         TestContext.WriteLine($"First: {firstMs}ms, Cached: {secondMs}ms");
     }
 
+    [Test]
+    public void BuildCacheKey_ChangesWhenReferencedAssemblyChanges() {
+        var assemblyPath = Path.Combine(Path.GetTempPath(), $"renderer-cache-{Guid.NewGuid():N}.dll");
+        try {
+            File.WriteAllText(assemblyPath, "version-one");
+            var first = DesignSurfaceFormRenderer.BuildCacheKey("designer", "companion", [assemblyPath]);
+
+            File.AppendAllText(assemblyPath, "-changed");
+            File.SetLastWriteTimeUtc(assemblyPath, DateTime.UtcNow.AddSeconds(1));
+            var second = DesignSurfaceFormRenderer.BuildCacheKey("designer", "companion", [assemblyPath]);
+
+            Assert.That(second, Is.Not.EqualTo(first));
+        }
+        finally {
+            File.Delete(assemblyPath);
+        }
+    }
+
     #endregion
 
     #region Benchmark
@@ -532,8 +550,9 @@ namespace Test {
         private void SomeOtherMethod() { }
     }
 }";
-        Assert.Throws<InvalidOperationException>(() =>
+        var exception = Assert.Throws<InvalidOperationException>(() =>
             _renderer.RenderDesignerCode(designerCode));
+        Assert.That(FormRenderErrors.GetCode(exception!), Is.EqualTo("designer_parse_failed"));
     }
 
     [Test]

@@ -1,0 +1,36 @@
+using Rhombus.WinFormsMcp.RuntimeContracts;
+
+namespace Rhombus.WinFormsMcp.Server.Runtime;
+
+internal interface IRuntimeBridgeClient {
+    Task<BridgeStatus> GetStatusAsync(int processId, CancellationToken cancellationToken);
+
+    Task<ControlTreeSnapshot> GetControlTreeAsync(
+        int processId,
+        string? rootId,
+        int maxDepth,
+        int maxNodes,
+        CancellationToken cancellationToken);
+
+    Task<ControlInspectionSnapshot> InspectControlAsync(
+        int processId,
+        string controlId,
+        IReadOnlyCollection<string>? sections,
+        IReadOnlyCollection<string>? includeProperties,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ControlAncestorSnapshot>> GetAncestorsAsync(
+        int processId,
+        string controlId,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<WindowSnapshot>> GetWindowTreeAsync(
+        int processId,
+        int maxNodes,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ControlBindingSnapshot>> GetBindingsAsync(
+        int processId,
+        string controlId,
+        CancellationToken cancellationToken);
+}
