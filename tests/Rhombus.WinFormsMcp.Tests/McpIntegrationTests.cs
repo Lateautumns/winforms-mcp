@@ -140,6 +140,12 @@ public class McpIntegrationTests {
             "winforms_get_window_tree",
             "winforms_get_bindings",
             "winforms_get_source_mapping",
+            "winforms_detect_layout_issues",
+            "winforms_compare_screenshot",
+            "winforms_check_accessibility",
+            "winforms_start_event_trace",
+            "winforms_read_event_trace",
+            "winforms_stop_event_trace",
         };
 
         var expectedSet = new HashSet<string>(expectedTools);

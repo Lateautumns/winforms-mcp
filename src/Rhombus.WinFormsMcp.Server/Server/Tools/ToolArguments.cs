@@ -35,6 +35,15 @@ internal static class ToolArguments {
             : null;
     }
 
+    public static long GetInt64(JsonElement arguments, string name, long defaultValue = 0) {
+        if (arguments.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+            return defaultValue;
+
+        return arguments.TryGetProperty(name, out var value) && value.TryGetInt64(out var result)
+            ? result
+            : defaultValue;
+    }
+
     public static bool GetBoolean(JsonElement arguments, string name, bool defaultValue = false) {
         if (arguments.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined ||
             !arguments.TryGetProperty(name, out var value))

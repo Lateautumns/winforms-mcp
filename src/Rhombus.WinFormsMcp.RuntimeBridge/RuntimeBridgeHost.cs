@@ -30,7 +30,21 @@ public sealed class RuntimeBridgeHost : IDisposable {
     internal RuntimeBridgeHost(RuntimeBridgeOptions options, System.Windows.Forms.Control? invoker) {
         _options = options;
         _dispatcher = new UiThreadDispatcher(invoker);
-        _inspector = new ManagedControlInspector(options);
+        _inspector = new ManagedControlInspector(
+            options,
+            postToUi: action => {
+                var dispatch = _dispatcher.InvokeAsync(
+                    () => {
+                        action();
+                        return true;
+                    },
+                    CancellationToken.None);
+                _ = dispatch.ContinueWith(
+                    task => Trace(task.Exception!),
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+            });
     }
 
     public bool IsRunning {
@@ -234,6 +248,47 @@ public sealed class RuntimeBridgeHost : IDisposable {
                         request.Pid,
                         RequireString(request.Arguments, "controlId")),
                     cancellationToken).ConfigureAwait(false),
+                RuntimeBridgeProtocol.DetectDiagnostics => await _dispatcher.InvokeAsync(
+                    () => _inspector.DetectDiagnostics(
+                        request.Pid,
+                        GetString(request.Arguments, "rootId"),
+                        GetStringArray(request.Arguments, "checks"),
+                        GetInt(request.Arguments, "maxDepth", 6),
+                        GetInt(request.Arguments, "maxNodes", 500),
+                        GetInt(request.Arguments, "maxDiagnostics", 200),
+                        cancellationToken),
+                    cancellationToken).ConfigureAwait(false),
+                RuntimeBridgeProtocol.GetAccessibility => await _dispatcher.InvokeAsync(
+                    () => _inspector.GetAccessibility(
+                        request.Pid,
+                        GetString(request.Arguments, "rootId"),
+                        GetInt(request.Arguments, "maxDepth", 6),
+                        GetInt(request.Arguments, "maxNodes", 500),
+                        GetInt(request.Arguments, "maxDiagnostics", 200),
+                        cancellationToken),
+                    cancellationToken).ConfigureAwait(false),
+                RuntimeBridgeProtocol.StartEventTrace => await _dispatcher.InvokeAsync(
+                    () => _inspector.StartEventTrace(
+                        request.Pid,
+                        GetString(request.Arguments, "rootId"),
+                        GetStringArray(request.Arguments, "events"),
+                        GetInt(request.Arguments, "maxEvents", 200),
+                        GetInt(request.Arguments, "durationMs", 60_000),
+                        GetInt(request.Arguments, "maxNodes", 500),
+                        cancellationToken),
+                    cancellationToken).ConfigureAwait(false),
+                RuntimeBridgeProtocol.ReadEventTrace => await _dispatcher.InvokeAsync(
+                    () => _inspector.ReadEventTrace(
+                        request.Pid,
+                        RequireString(request.Arguments, "traceId"),
+                        GetInt64(request.Arguments, "afterSequence", 0),
+                        GetInt(request.Arguments, "maxEvents", 200)),
+                    cancellationToken).ConfigureAwait(false),
+                RuntimeBridgeProtocol.StopEventTrace => await _dispatcher.InvokeAsync(
+                    () => _inspector.StopEventTrace(
+                        request.Pid,
+                        RequireString(request.Arguments, "traceId")),
+                    cancellationToken).ConfigureAwait(false),
                 _ => throw new InvalidOperationException($"Unknown runtime command '{request.Command}'.")
             };
 
@@ -305,6 +360,16 @@ public sealed class RuntimeBridgeHost : IDisposable {
             Trace(ex);
         }
         finally {
+            try {
+                // Event removal is pure managed delegate cleanup. Dispatching it
+                // back to the UI thread would deadlock when synchronous Stop()
+                // is itself called from that UI thread during application exit.
+                _inspector.Dispose();
+            }
+            catch (Exception ex) {
+                Trace(ex);
+            }
+
             // The listener captured the token and must be fully stopped before
             // its source is released. This also makes concurrent Dispose calls
             // observe the same completed shutdown task.
@@ -354,6 +419,13 @@ public sealed class RuntimeBridgeHost : IDisposable {
         arguments.ValueKind == JsonValueKind.Object &&
         arguments.TryGetProperty(name, out var value) &&
         value.TryGetInt32(out var result)
+            ? result
+            : defaultValue;
+
+    private static long GetInt64(JsonElement arguments, string name, long defaultValue) =>
+        arguments.ValueKind == JsonValueKind.Object &&
+        arguments.TryGetProperty(name, out var value) &&
+        value.TryGetInt64(out var result)
             ? result
             : defaultValue;
 

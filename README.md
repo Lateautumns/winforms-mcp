@@ -78,6 +78,7 @@ That's it. The agent can now see and interact with any WinForms application on y
 | **Runtime inspection** | `runtime_status` `get_control_tree` `inspect_control` `get_ancestors` `get_window_tree` `get_bindings` `get_source_mapping` | Read real controls, layout, bindings, HWNDs, and source symbols through the optional RuntimeBridge |
 | **Interaction** | `click_element` `type_text` `set_value` `select_item` `click_menu_item` `drag_drop` `send_keys` | Click buttons, fill text boxes, select combo items, navigate menus |
 | **Visual** | `take_screenshot` `render_form` | Capture running apps or render `.Designer.cs` to PNG |
+| **Diagnostics** | `detect_layout_issues` `compare_screenshot` `check_accessibility` `start_event_trace` `read_event_trace` `stop_event_trace` | Detect evidence-based runtime issues, compare PNG output, and trace bounded whitelisted events |
 
 ## Cross-framework rendering
 
@@ -130,6 +131,11 @@ It never serializes `Control`, `Form`, or `Binding` instances across the process
 and all WinForms reads are marshalled to the UI thread. Without a bridge, the existing
 UIA tools continue to work unchanged.
 
+Runtime diagnostics are bounded and read-only. Layout, DPI, binding, and accessibility
+checks return structured evidence; screenshot comparison accepts exactly one path or
+base64 PNG for each side; event tracing uses expiring ring-buffer sessions and only
+subscribes to the documented WinForms event whitelist.
+
 ## Environment variables
 
 | Variable | Default | Description |
@@ -148,7 +154,7 @@ UIA tools continue to work unchanged.
 
 The server uses the official `ModelContextProtocol` .NET SDK for stdio transport,
 handshake/capability negotiation, tool discovery, and tool calls. Tool schemas are
-kept in a definition catalog and each of the 40 tools has an independent handler
+kept in a definition catalog and each of the 46 tools has an independent handler
 registered through a validated `ToolRegistry`.
 
 `AutomationHelper` remains as the public compatibility facade. Process, UIA,

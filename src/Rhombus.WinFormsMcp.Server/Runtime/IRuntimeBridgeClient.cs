@@ -45,4 +45,42 @@ internal interface IRuntimeBridgeClient {
         int processId,
         string controlId,
         CancellationToken cancellationToken);
+
+    Task<RuntimeDiagnosticsSnapshot> DetectDiagnosticsAsync(
+        int processId,
+        string? rootId,
+        IReadOnlyCollection<string>? checks,
+        int maxDepth,
+        int maxNodes,
+        int maxDiagnostics,
+        CancellationToken cancellationToken);
+
+    Task<RuntimeAccessibilitySnapshot> GetAccessibilityAsync(
+        int processId,
+        string? rootId,
+        int maxDepth,
+        int maxNodes,
+        int maxDiagnostics,
+        CancellationToken cancellationToken);
+
+    Task<RuntimeEventTraceSnapshot> StartEventTraceAsync(
+        int processId,
+        string? rootId,
+        IReadOnlyCollection<string>? events,
+        int maxEvents,
+        int durationMs,
+        int maxNodes,
+        CancellationToken cancellationToken);
+
+    Task<RuntimeEventTraceSnapshot> ReadEventTraceAsync(
+        int processId,
+        string traceId,
+        long afterSequence,
+        int maxEvents,
+        CancellationToken cancellationToken);
+
+    Task<RuntimeEventTraceSnapshot> StopEventTraceAsync(
+        int processId,
+        string traceId,
+        CancellationToken cancellationToken);
 }

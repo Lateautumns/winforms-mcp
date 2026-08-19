@@ -43,6 +43,10 @@ public sealed class OfficialMcpSdkClientTests {
             Assert.That(names, Does.Contain("winforms_get_control_tree"));
             Assert.That(names, Does.Contain("winforms_inspect_control"));
             Assert.That(names, Does.Contain("winforms_get_source_mapping"));
+            Assert.That(names, Does.Contain("winforms_detect_layout_issues"));
+            Assert.That(names, Does.Contain("winforms_compare_screenshot"));
+            Assert.That(names, Does.Contain("winforms_check_accessibility"));
+            Assert.That(names, Does.Contain("winforms_start_event_trace"));
         });
     }
 }

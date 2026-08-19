@@ -118,6 +118,69 @@ internal sealed class NamedPipeRuntimeBridgeClient : IRuntimeBridgeClient, IDisp
             new { controlId },
             cancellationToken).ConfigureAwait(false);
 
+    public Task<RuntimeDiagnosticsSnapshot> DetectDiagnosticsAsync(
+        int processId,
+        string? rootId,
+        IReadOnlyCollection<string>? checks,
+        int maxDepth,
+        int maxNodes,
+        int maxDiagnostics,
+        CancellationToken cancellationToken) =>
+        SendAsync<RuntimeDiagnosticsSnapshot>(
+            processId,
+            RuntimeBridgeProtocol.DetectDiagnostics,
+            new { rootId, checks, maxDepth, maxNodes, maxDiagnostics },
+            cancellationToken);
+
+    public Task<RuntimeAccessibilitySnapshot> GetAccessibilityAsync(
+        int processId,
+        string? rootId,
+        int maxDepth,
+        int maxNodes,
+        int maxDiagnostics,
+        CancellationToken cancellationToken) =>
+        SendAsync<RuntimeAccessibilitySnapshot>(
+            processId,
+            RuntimeBridgeProtocol.GetAccessibility,
+            new { rootId, maxDepth, maxNodes, maxDiagnostics },
+            cancellationToken);
+
+    public Task<RuntimeEventTraceSnapshot> StartEventTraceAsync(
+        int processId,
+        string? rootId,
+        IReadOnlyCollection<string>? events,
+        int maxEvents,
+        int durationMs,
+        int maxNodes,
+        CancellationToken cancellationToken) =>
+        SendAsync<RuntimeEventTraceSnapshot>(
+            processId,
+            RuntimeBridgeProtocol.StartEventTrace,
+            new { rootId, events, maxEvents, durationMs, maxNodes },
+            cancellationToken);
+
+    public Task<RuntimeEventTraceSnapshot> ReadEventTraceAsync(
+        int processId,
+        string traceId,
+        long afterSequence,
+        int maxEvents,
+        CancellationToken cancellationToken) =>
+        SendAsync<RuntimeEventTraceSnapshot>(
+            processId,
+            RuntimeBridgeProtocol.ReadEventTrace,
+            new { traceId, afterSequence, maxEvents },
+            cancellationToken);
+
+    public Task<RuntimeEventTraceSnapshot> StopEventTraceAsync(
+        int processId,
+        string traceId,
+        CancellationToken cancellationToken) =>
+        SendAsync<RuntimeEventTraceSnapshot>(
+            processId,
+            RuntimeBridgeProtocol.StopEventTrace,
+            new { traceId },
+            cancellationToken);
+
     public void Dispose() {
         if (_disposed)
             return;

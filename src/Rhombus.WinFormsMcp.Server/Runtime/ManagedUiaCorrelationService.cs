@@ -20,7 +20,21 @@ internal sealed class ManagedUiaCorrelationService {
         _session = session;
     }
 
-    public UiaCorrelation? TryCorrelate(ControlIdentity identity) {
+    public UiaCorrelation? TryCorrelate(ControlIdentity identity, int lookupTimeoutMs = LookupTimeoutMs) {
+        var candidate = TryResolve(identity, lookupTimeoutMs);
+        if (candidate is null)
+            return null;
+
+        var uiaId = _session.CacheElement(candidate.Element);
+        identity.UiaId = uiaId;
+        return new UiaCorrelation {
+            UiaId = uiaId,
+            Method = candidate.Method,
+            Confidence = candidate.Confidence
+        };
+    }
+
+    internal CorrelationCandidate? TryResolve(ControlIdentity identity, int lookupTimeoutMs = LookupTimeoutMs) {
         var targetHwnd = ParseHwnd(identity.Hwnd);
         if (string.IsNullOrWhiteSpace(identity.AutomationId) &&
             string.IsNullOrWhiteSpace(identity.Name) &&
@@ -31,20 +45,14 @@ internal sealed class ManagedUiaCorrelationService {
             var automation = _session.GetAutomation();
             var mainWindow = identity.ProcessId > 0 ? automation.GetMainWindow(identity.ProcessId) : null;
             var candidate =
-                FindManagedElement(automation, identity, mainWindow) ??
+                FindManagedElement(automation, identity, mainWindow, lookupTimeoutMs) ??
                 FindByNativeWindowHandle(automation, identity, targetHwnd, mainWindow) ??
-                FindManagedElement(automation, identity, null) ??
+                FindManagedElement(automation, identity, null, lookupTimeoutMs) ??
                 FindByNativeWindowHandle(automation, identity, targetHwnd, null);
             if (candidate is null)
                 return null;
 
-            var uiaId = _session.CacheElement(candidate.Element);
-            identity.UiaId = uiaId;
-            return new UiaCorrelation {
-                UiaId = uiaId,
-                Method = candidate.Method,
-                Confidence = candidate.Confidence
-            };
+            return candidate;
         }
         catch {
             return null;
@@ -54,18 +62,19 @@ internal sealed class ManagedUiaCorrelationService {
     private static CorrelationCandidate? FindManagedElement(
         IAutomationHelper automation,
         ControlIdentity identity,
-        AutomationElement? parent) {
+        AutomationElement? parent,
+        int lookupTimeoutMs) {
         if (!string.IsNullOrWhiteSpace(identity.AutomationId)) {
             var byAutomationId = TryFind(() => automation.FindByAutomationId(
                 identity.AutomationId!,
                 parent,
-                LookupTimeoutMs));
+                lookupTimeoutMs));
             if (byAutomationId is not null && MatchesProcess(byAutomationId, identity.ProcessId))
                 return new CorrelationCandidate(byAutomationId, "automationId", parent is null ? 0.75 : 0.85);
         }
 
         if (!string.IsNullOrWhiteSpace(identity.Name)) {
-            var byName = TryFind(() => automation.FindByName(identity.Name, parent, LookupTimeoutMs));
+            var byName = TryFind(() => automation.FindByName(identity.Name, parent, lookupTimeoutMs));
             if (byName is not null && MatchesProcess(byName, identity.ProcessId))
                 return new CorrelationCandidate(byName, "name", parent is null ? 0.45 : 0.55);
         }
@@ -183,7 +192,7 @@ internal sealed class ManagedUiaCorrelationService {
         }
     }
 
-    private sealed record CorrelationCandidate(
+    internal sealed record CorrelationCandidate(
         AutomationElement Element,
         string Method,
         double Confidence);

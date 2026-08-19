@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows.Forms;
 
+using Rhombus.WinFormsMcp.RuntimeBridge.Diagnostics;
 using Rhombus.WinFormsMcp.RuntimeBridge.Inspection.Providers;
 using Rhombus.WinFormsMcp.RuntimeContracts;
 
@@ -15,7 +16,7 @@ namespace Rhombus.WinFormsMcp.RuntimeBridge.Inspection;
 /// Creates bounded, serializable snapshots from real WinForms controls.
 /// Every public method is called by <see cref="Hosting.UiThreadDispatcher"/>.
 /// </summary>
-internal sealed class ManagedControlInspector {
+internal sealed class ManagedControlInspector : IDisposable {
     private const int DefaultSemanticMaxDepth = 4;
     private const int DefaultSemanticMaxNodes = 200;
 
@@ -29,10 +30,15 @@ internal sealed class ManagedControlInspector {
     private readonly RuntimeBridgeOptions _options;
     private readonly ControlIdentityRegistry _identityRegistry = new();
     private readonly IControlProviderRegistry _providerRegistry;
+    private readonly RuntimeEventTraceRegistry _eventTraces;
 
-    public ManagedControlInspector(RuntimeBridgeOptions options, IControlProviderRegistry? providerRegistry = null) {
+    public ManagedControlInspector(
+        RuntimeBridgeOptions options,
+        IControlProviderRegistry? providerRegistry = null,
+        Action<Action>? postToUi = null) {
         _options = options;
         _providerRegistry = providerRegistry ?? ControlProviderRegistry.CreateDefault();
+        _eventTraces = new RuntimeEventTraceRegistry(options, postToUi);
     }
 
     public BridgeHello GetHello() {
@@ -49,7 +55,7 @@ internal sealed class ManagedControlInspector {
             Capabilities = [
                 "controlTree", "properties", "layout", "ancestors", "windowTree", "bindings",
                 "uiThreadSnapshots", "providerSemantics", "providerSemanticPaging", "layeredWindows",
-                "providerWindowMetadata"
+                "providerWindowMetadata", "diagnostics", "accessibility", "eventTrace"
             ]
         };
     }
@@ -153,6 +159,119 @@ internal sealed class ManagedControlInspector {
         EnsureCurrentProcess(processId);
         return ReadBindings(RequireControl(controlId));
     }
+
+    public RuntimeDiagnosticsSnapshot DetectDiagnostics(
+        int processId,
+        string? rootId,
+        IReadOnlyCollection<string>? checks,
+        int maxDepth,
+        int maxNodes,
+        int maxDiagnostics,
+        CancellationToken cancellationToken) {
+        EnsureCurrentProcess(processId);
+        var boundedDepth = Clamp(maxDepth, 0, Math.Max(0, _options.MaxDepth));
+        var boundedNodes = Clamp(maxNodes, 1, Math.Max(1, _options.MaxNodes));
+        var boundedDiagnostics = Clamp(maxDiagnostics, 1, Math.Max(1, _options.MaxDiagnostics));
+        var records = new List<DiagnosticControlRecord>(Math.Min(boundedNodes, 256));
+        var traversalTruncated = false;
+        foreach (var root in ResolveRoots(rootId)) {
+            BuildDiagnosticRecords(
+                root,
+                null,
+                0,
+                boundedDepth,
+                boundedNodes,
+                records,
+                ref traversalTruncated,
+                cancellationToken);
+            if (records.Count >= boundedNodes)
+                break;
+        }
+
+        var result = ControlDiagnosticRules.Analyze(
+            records,
+            checks,
+            boundedNodes,
+            boundedDiagnostics,
+            traversalTruncated,
+            cancellationToken);
+        result.ScannedNodes = records.Count;
+        return result;
+    }
+
+    public RuntimeAccessibilitySnapshot GetAccessibility(
+        int processId,
+        string? rootId,
+        int maxDepth,
+        int maxNodes,
+        int maxDiagnostics,
+        CancellationToken cancellationToken) {
+        EnsureCurrentProcess(processId);
+        var boundedDepth = Clamp(maxDepth, 0, Math.Max(0, _options.MaxDepth));
+        var boundedNodes = Clamp(maxNodes, 1, Math.Max(1, _options.MaxNodes));
+        var boundedDiagnostics = Clamp(maxDiagnostics, 1, Math.Max(1, _options.MaxDiagnostics));
+        var result = new RuntimeAccessibilitySnapshot {
+            MaxNodes = boundedNodes,
+            MaxDiagnostics = boundedDiagnostics
+        };
+        foreach (var root in ResolveRoots(rootId)) {
+            BuildAccessibility(
+                root,
+                0,
+                boundedDepth,
+                boundedNodes,
+                boundedDiagnostics,
+                result,
+                cancellationToken);
+            if (result.Controls.Count >= boundedNodes)
+                break;
+        }
+        result.ScannedNodes = result.Controls.Count;
+        return result;
+    }
+
+    public RuntimeEventTraceSnapshot StartEventTrace(
+        int processId,
+        string? rootId,
+        IReadOnlyCollection<string>? events,
+        int maxEvents,
+        int durationMs,
+        int maxNodes,
+        CancellationToken cancellationToken) {
+        EnsureCurrentProcess(processId);
+        var boundedNodes = Clamp(
+            maxNodes,
+            1,
+            Math.Min(Math.Max(1, _options.MaxNodes), Math.Max(1, _options.MaxEventTraceControls)));
+        var targets = new List<RuntimeEventTraceRegistry.TraceControlTarget>(boundedNodes);
+        var truncated = false;
+        foreach (var root in ResolveRoots(rootId)) {
+            CollectTraceTargets(root, boundedNodes, targets, ref truncated, cancellationToken);
+            if (targets.Count >= boundedNodes)
+                break;
+        }
+
+        var snapshot = _eventTraces.Start(targets, events, maxEvents, durationMs);
+        if (truncated)
+            snapshot.Truncated = true;
+        return snapshot;
+    }
+
+    public RuntimeEventTraceSnapshot ReadEventTrace(
+        int processId,
+        string traceId,
+        long afterSequence,
+        int maxEvents) {
+        EnsureCurrentProcess(processId);
+        return _eventTraces.Read(traceId, Math.Max(0, afterSequence), maxEvents);
+    }
+
+    public RuntimeEventTraceSnapshot StopEventTrace(int processId, string traceId) {
+        EnsureCurrentProcess(processId);
+        return _eventTraces.Stop(traceId);
+    }
+
+    public void Dispose() => _eventTraces.Dispose();
 
     private ControlProviderSnapshot DescribeProvider(IControlProvider provider, Control control) {
         try {
@@ -356,17 +475,31 @@ internal sealed class ManagedControlInspector {
         var result = new List<ControlBindingSnapshot>();
         foreach (Binding binding in control.DataBindings) {
             try {
+                var propertyDescriptor = TypeDescriptor.GetProperties(control).Find(binding.PropertyName, true);
+                var source = binding.DataSource is BindingSource bindingSource
+                    ? bindingSource.DataSource
+                    : binding.DataSource;
+                var dataMemberExists = TryFindDataMember(binding.DataSource, binding.BindingMemberInfo.BindingMember);
+                result.Add(new ControlBindingSnapshot {
+                    Property = binding.PropertyName,
+                    DataMember = binding.BindingMemberInfo.BindingMember,
+                    DataSourceType = GetDataSourceType(source),
+                    FormattingEnabled = binding.FormattingEnabled,
+                    DataSourceUpdateMode = binding.DataSourceUpdateMode.ToString(),
+                    ControlUpdateMode = binding.ControlUpdateMode.ToString(),
+                    DataSourcePresent = source is not null,
+                    DataMemberExists = dataMemberExists,
+                    ControlPropertyExists = propertyDescriptor is not null,
+                    ControlPropertyReadOnly = propertyDescriptor?.IsReadOnly
+                });
+            }
+            catch (Exception ex) {
                 result.Add(new ControlBindingSnapshot {
                     Property = binding.PropertyName,
                     DataMember = binding.BindingMemberInfo.BindingMember,
                     DataSourceType = GetDataSourceType(binding.DataSource),
-                    FormattingEnabled = binding.FormattingEnabled,
-                    DataSourceUpdateMode = binding.DataSourceUpdateMode.ToString(),
-                    ControlUpdateMode = binding.ControlUpdateMode.ToString()
+                    Error = ex.Message
                 });
-            }
-            catch {
-                // A malformed third-party Binding should not hide the other bindings.
             }
         }
 
@@ -380,6 +513,239 @@ internal sealed class ManagedControlInspector {
         if (dataSource is Type type)
             return type.FullName;
         return dataSource?.GetType().FullName;
+    }
+
+    private static bool? TryFindDataMember(object? dataSource, string? dataMember) {
+        if (dataSource is null)
+            return false;
+        if (string.IsNullOrWhiteSpace(dataMember))
+            return true;
+
+        try {
+            var segments = dataMember!.Split('.');
+            PropertyDescriptorCollection descriptors;
+            if (dataSource is BindingSource bindingSource)
+                descriptors = bindingSource.GetItemProperties(null);
+            else
+                descriptors = TypeDescriptor.GetProperties(GetBoundItemType(dataSource));
+
+            for (var index = 0; index < segments.Length; index++) {
+                var descriptor = descriptors.Find(segments[index], true);
+                if (descriptor is null)
+                    return false;
+                if (index + 1 < segments.Length)
+                    descriptors = TypeDescriptor.GetProperties(descriptor.PropertyType);
+            }
+            return true;
+        }
+        catch {
+            return null;
+        }
+    }
+
+    private static Type GetBoundItemType(object dataSource) {
+        if (dataSource is Type sourceType)
+            return sourceType;
+
+        var type = dataSource.GetType();
+        var enumerableType = type.GetInterfaces()
+            .Concat([type])
+            .FirstOrDefault(candidate =>
+                candidate.IsGenericType && candidate.GetGenericTypeDefinition() == typeof(IEnumerable<>));
+        return enumerableType?.GetGenericArguments()[0] ?? type;
+    }
+
+    private void BuildDiagnosticRecords(
+        Control control,
+        string? parentId,
+        int depth,
+        int maxDepth,
+        int maxNodes,
+        List<DiagnosticControlRecord> records,
+        ref bool traversalTruncated,
+        CancellationToken cancellationToken) {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (records.Count >= maxNodes) {
+            traversalTruncated = true;
+            return;
+        }
+
+        var path = GetControlPath(control);
+        var summary = BuildSummary(control, path, parentId);
+        var layout = BuildLayout(control);
+        var text = TryGet(() => control.Text, string.Empty);
+        var availableWidth = Math.Max(0, layout.ClientSize.Width - layout.Padding.Left - layout.Padding.Right);
+        var availableHeight = Math.Max(0, layout.ClientSize.Height - layout.Padding.Top - layout.Padding.Bottom);
+        SizeSnapshot? measured = null;
+        if (!string.IsNullOrEmpty(text) && CanDiagnoseTextClipping(control)) {
+            try {
+                var measuredSize = TextRenderer.MeasureText(
+                    text,
+                    control.Font,
+                    Size.Empty,
+                    TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+                measured = new SizeSnapshot { Width = measuredSize.Width, Height = measuredSize.Height };
+            }
+            catch {
+                // Text measurement is best effort; layout diagnostics still return bounds.
+            }
+        }
+
+        records.Add(new DiagnosticControlRecord {
+            Summary = summary,
+            State = BuildState(control),
+            Layout = layout,
+            Bindings = ReadBindings(control),
+            TabStop = TryGet(() => control.TabStop, false),
+            ParentAutoScroll = control.Parent is ScrollableControl scrollable && TryGet(() => scrollable.AutoScroll, false),
+            IsContainer = TryGet(() => control.Controls.Count > 0, false),
+            MeasuredText = measured,
+            AvailableText = measured is null ? null : new SizeSnapshot { Width = availableWidth, Height = availableHeight }
+        });
+
+        if (depth >= maxDepth) {
+            if (TryGet(() => control.Controls.Count, 0) > 0)
+                traversalTruncated = true;
+            return;
+        }
+
+        var childCount = TryGet(() => control.Controls.Count, 0);
+        for (var index = 0; index < childCount; index++) {
+            if (records.Count >= maxNodes) {
+                traversalTruncated = true;
+                return;
+            }
+            BuildDiagnosticRecords(
+                control.Controls[index],
+                summary.Identity.ManagedId,
+                depth + 1,
+                maxDepth,
+                maxNodes,
+                records,
+                ref traversalTruncated,
+                cancellationToken);
+        }
+    }
+
+    private void BuildAccessibility(
+        Control control,
+        int depth,
+        int maxDepth,
+        int maxNodes,
+        int maxDiagnostics,
+        RuntimeAccessibilitySnapshot result,
+        CancellationToken cancellationToken) {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (result.Controls.Count >= maxNodes) {
+            result.Truncated = true;
+            return;
+        }
+
+        var summary = BuildSummary(control, GetControlPath(control), control.Parent is null ? null : GetControlId(control.Parent));
+        string? accessibleName = null;
+        string? accessibleDescription = null;
+        try {
+            var accessible = control.AccessibilityObject;
+            accessibleName = accessible?.Name;
+            accessibleDescription = accessible?.Description;
+        }
+        catch {
+            // Accessibility providers can throw while controls are disposing.
+        }
+
+        var snapshot = new AccessibilityControlSnapshot {
+            Summary = summary,
+            AccessibleName = accessibleName,
+            AccessibleDescription = accessibleDescription,
+            TabIndex = TryGet(() => control.TabIndex, -1),
+            TabStop = TryGet(() => control.TabStop, false),
+            Focused = TryGet(() => control.Focused, false),
+            Enabled = TryGet(() => control.Enabled, false),
+            Visible = TryGet(() => control.Visible, false),
+            AutomationId = summary.Identity.AutomationId
+        };
+        result.Controls.Add(snapshot);
+        if (result.Diagnostics.Count < maxDiagnostics) {
+            if (snapshot.Visible && snapshot.Enabled && snapshot.TabStop && string.IsNullOrWhiteSpace(snapshot.AccessibleName))
+                AddAccessibility(result, "warning", "missing_accessible_name", summary.Identity.ManagedId,
+                    "Visible enabled control has no accessible name.", ("name", summary.Identity.Name), ("text", summary.Text));
+            if (snapshot.TabStop && snapshot.TabIndex < 0)
+                AddAccessibility(result, "warning", "invalid_tab_index", summary.Identity.ManagedId,
+                    "Control is a tab stop but does not expose a valid TabIndex.", ("tabStop", true), ("tabIndex", snapshot.TabIndex));
+            if (!snapshot.Visible && snapshot.TabStop)
+                AddAccessibility(result, "info", "hidden_tab_stop", summary.Identity.ManagedId,
+                    "Hidden control remains in the keyboard tab order.", ("visible", false), ("tabStop", true));
+        }
+        else {
+            result.Truncated = true;
+        }
+
+        if (depth >= maxDepth) {
+            if (TryGet(() => control.Controls.Count, 0) > 0)
+                result.Truncated = true;
+            return;
+        }
+
+        var childCount = TryGet(() => control.Controls.Count, 0);
+        for (var index = 0; index < childCount; index++) {
+            if (result.Controls.Count >= maxNodes) {
+                result.Truncated = true;
+                return;
+            }
+            BuildAccessibility(control.Controls[index], depth + 1, maxDepth, maxNodes, maxDiagnostics, result, cancellationToken);
+        }
+    }
+
+    private void CollectTraceTargets(
+        Control control,
+        int maxNodes,
+        List<RuntimeEventTraceRegistry.TraceControlTarget> targets,
+        ref bool truncated,
+        CancellationToken cancellationToken) {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (targets.Count >= maxNodes) {
+            truncated = true;
+            return;
+        }
+
+        targets.Add(new RuntimeEventTraceRegistry.TraceControlTarget {
+            Control = control,
+            ControlId = GetControlId(control),
+            ControlName = GetControlName(control),
+            ControlType = control.GetType().FullName ?? control.GetType().Name,
+            ControlPath = GetControlPath(control)
+        });
+        var childCount = TryGet(() => control.Controls.Count, 0);
+        for (var index = 0; index < childCount; index++) {
+            if (targets.Count >= maxNodes) {
+                truncated = true;
+                return;
+            }
+            CollectTraceTargets(control.Controls[index], maxNodes, targets, ref truncated, cancellationToken);
+        }
+    }
+
+    private static void AddAccessibility(
+        RuntimeAccessibilitySnapshot result,
+        string severity,
+        string code,
+        string controlId,
+        string message,
+        params (string Name, object? Value)[] evidence) {
+        if (result.Diagnostics.Count >= result.MaxDiagnostics) {
+            result.Truncated = true;
+            return;
+        }
+
+        var diagnostic = new DiagnosticSnapshot {
+            Severity = severity,
+            Code = code,
+            ControlId = controlId,
+            Message = message
+        };
+        foreach (var (name, value) in evidence)
+            diagnostic.Evidence[name] = JsonSerializer.SerializeToElement(value, SerializerOptions);
+        result.Diagnostics.Add(diagnostic);
     }
 
     private IReadOnlyList<Control> ResolveRoots(string? rootId) {
@@ -464,6 +830,12 @@ internal sealed class ManagedControlInspector {
             return 96;
         }
     }
+
+    private static bool CanDiagnoseTextClipping(Control control) => control switch {
+        Label label => !label.AutoSize && !label.AutoEllipsis,
+        ButtonBase button => !button.AutoSize,
+        _ => false
+    };
 
     private static JsonElement ToJsonValue(object? value) {
         if (value is null)

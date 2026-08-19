@@ -105,7 +105,7 @@ public class RenderVisualOptionsTests {
             Assert.That(properties.TryGetProperty("theme", out _), Is.True);
             Assert.That(properties.TryGetProperty("dpi", out _), Is.True);
             Assert.That(properties.TryGetProperty("providerProfile", out _), Is.True);
-            Assert.That(ToolDefinitionCatalog.All, Has.Count.EqualTo(40));
+            Assert.That(ToolDefinitionCatalog.All, Has.Count.EqualTo(46));
         });
     }
 

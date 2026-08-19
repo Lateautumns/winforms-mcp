@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 8 - AI Diagnostics started on the stacked `feature/v15-diagnostics` branch.
+Stage 8 - AI Diagnostics implementation complete; local Gate green and Windows Core CI pending on the implementation commit.
 
 ## Implemented
 
@@ -49,13 +49,18 @@ Stage 8 - AI Diagnostics started on the stacked `feature/v15-diagnostics` branch
   and Drawer owner correlation and bounded metadata.
 - Hardened UIA correlation fallback for managed controls using automation id, native HWND lookup, bounded HWND traversal, and process matching.
 - Hardened UI text input fallback for controls without a writable ValuePattern by trying writable child value patterns, STA clipboard paste, and paced SendKeys fallback.
-- Extended the existing `winforms_render_form` tool with optional `theme`, `dpi`, and `providerProfile` fields; tool count remains 40.
+- Extended the existing `winforms_render_form` tool with optional `theme`, `dpi`, and `providerProfile` fields; the Stage 7 tool count remained 40.
 - Added request-scoped AntdUI theme/DPI reflection support using the verified `AntdUI.Config.Mode` and `Config.SetDpi(float?)` APIs.
 - Restored AntdUI global theme/DPI state after both successful and failed renders, including nested UserControl rendering.
 - Added render cache isolation for theme, DPI, provider profile, TFM, and referenced assembly fingerprints.
 - Applied bounded logical DPI scaling to the DesignSurface tree for standard WinForms and AntdUI previews.
 - Added Stage 7 visual matrix/state restoration tests for AntdUI Button, Input, Tabs, Tree, and Table fixtures at Light/Dark 96/120/144/192 DPI.
 - Hardened UIA text input for owner-drawn/composite controls without ValuePattern by using bounded, timeout-protected HWND key/character messages before foreground keyboard fallback; existing AntdUI action E2E now passes reliably.
+- Added a shared RuntimeContracts diagnostics model with explicit severity, code, control ID, message, and evidence fields.
+- Added bounded layout, DPI, and binding diagnostics sourced from UI-thread managed control snapshots.
+- Added deterministic screenshot comparison with PNG/base64 inputs, channel thresholding, changed bounds, bounded tile regions, and cancellation.
+- Added read-only accessibility diagnostics with managed AccessibleName/Description, TabIndex/TabStop, UIA correlation, ControlType, and supported patterns.
+- Added bounded whitelist-only RuntimeBridge event tracing for Click, TextChanged, CheckedChanged, SelectedIndexChanged, VisibleChanged, EnabledChanged, and FormClosing with ring buffer, cursor paging, expiry, and handler cleanup.
 
 ## Architecture
 
@@ -73,17 +78,19 @@ Stage 8 - AI Diagnostics started on the stacked `feature/v15-diagnostics` branch
 - Managed RuntimeBridge remains the understanding layer; UIA remains the action layer.
 - Semantic reads remain bounded by RuntimeBridge clamps and provider-level collection/row limits; non-indexed offsets fail closed with explicit metadata.
 - Rendering remains isolated in RendererHost; no AntdUI compile-time reference was added to Rendering, Server, RuntimeBridge, or RuntimeContracts.
+- Diagnostics remain generic and provider-independent; RuntimeBridge still exposes no setters, Method.Invoke, business method execution, or reflection execution surface.
+- Runtime event trace sessions own their subscriptions, have bounded lifetime/capacity, and are removed on Stop, expiry, session pressure, and host disposal.
 
 ## MCP Changes
 
-- Added: none.
+- Added: `winforms_detect_layout_issues`, `winforms_compare_screenshot`, `winforms_check_accessibility`, `winforms_start_event_trace`, `winforms_read_event_trace`, `winforms_stop_event_trace`.
 - Changed: `winforms_render_form` only by adding optional `theme`, `dpi`, and `providerProfile` parameters; no required parameter changed.
 - Extended: winforms_inspect_control can return AntdUI provider and semantic data through the existing optional provider/semantic sections.
-- Unchanged: existing MCP tool count remains 40; no AntdUI-specific MCP tools were added.
+- Unchanged: all existing 40 tool names and required parameters remain compatible; the six additions are generic diagnostics and do not add AntdUI-specific tools.
 
 ## Build
 
-- Stage 4 local Gate passed.
+- Stage 8 local Gate passed.
 - Format: passed.
 - Format verify: passed.
 - Restore: passed.
@@ -92,7 +99,7 @@ Stage 8 - AI Diagnostics started on the stacked `feature/v15-diagnostics` branch
 
 ## Tests
 
-- Full local test run: 369 total, 325 passed, 44 skipped, 0 failed (elevated desktop session).
+- Full local Stage 8 test run: 379 total, 335 passed, 44 skipped, 0 failed (elevated desktop session).
 - New coverage:
   - AntdUI provider detection and fallback behavior.
   - AntdUI Button, Input, InputNumber, Checkbox, Radio, Switch, and Select semantics.
@@ -104,12 +111,16 @@ Stage 8 - AI Diagnostics started on the stacked `feature/v15-diagnostics` branch
   - AntdUI Tree/Menu hierarchy, selection/state, depth limits, and paging.
   - AntdUI Table columns, row scopes, sorting/filter metadata, row paging, and CellButton semantics.
   - RuntimeBridge semantic-option transport, including null-safe JSON handling.
-  - Existing MCP tool surface unchanged at 40 tools.
+  - Existing MCP tool surface remains compatible; total registry surface is now 46 tools.
   - LayeredWindow metadata contract serialization and semantic classification.
   - Select dropdown item bounds/selection/truncation and owner managed ID.
   - Menu popup, Tooltip, Message, and Drawer HWND/owner correlation.
   - Render visual option normalization, cache isolation, standard WinForms DPI scaling.
   - AntdUI Light/Dark rendering matrix at 96/120/144/192 DPI and global-state restoration on success/failure.
+  - Layout/DPI/binding diagnostic evidence and maxDiagnostics bounds.
+  - Deterministic screenshot diff pixels, bounds, tile regions, thresholds, and invalid input handling.
+  - Accessibility diagnostic bounds and managed/UIA enrichment.
+  - Runtime event trace ring buffer, sequence paging, expiry, Stop cleanup, and real TestApp Named Pipe capture.
 
 ## CI
 
@@ -130,19 +141,19 @@ Stage 8 - AI Diagnostics started on the stacked `feature/v15-diagnostics` branch
 - Base Branch: feature/v14-antdui-provider.
 - Current Branch: feature/v15-diagnostics.
 - Stage 7 Commit: f3bf321 `feat: support render theme and dpi profiles`.
-- Current Head: 28c756c `docs: record stage 7 ci status`.
+- Current Head before the Stage 8 implementation commit: 8948019 `docs: start stage 8 diagnostics`.
 - Stage 4 Commit: b7ac9f2 feat: add AntdUI basic control inspection.
 - Stage 5 Commit: 700adc8 feat: add AntdUI complex semantic inspection.
 - Stage 6 Commit: cbc300f `feat: support AntdUI layered windows`.
-- Draft PR: #2 remains the provider PR; Draft PR #3 will target feature/v14-antdui-provider.
-- Working Tree: clean before Stage 8 implementation.
+- Draft PR: #3 targets feature/v14-antdui-provider.
+- Working Tree: reviewed Stage 8 implementation ready for its feature commit.
 
 ## Risks
 
 - AntdUI repository currently contains untracked .codegraph directories; treat them as local analysis artifacts and never commit them.
 - AntdUIProvider intentionally reads only allowlisted public properties and bounded item summaries.
 - Provider implementations must continue avoiding arbitrary runtime execution, setters, or method invocation.
-- Future AntdUI semantic support for Tabs, Tree, Table, and Menu should stay within the existing provider/semantic architecture and avoid new AntdUI-specific MCP tools unless compatibility requires it.
+- Future provider extensions should stay within the existing provider/semantic architecture and avoid AntdUI-specific MCP tools unless compatibility requires it.
 - Table internals use a narrow allowlist of AntdUI members and return per-scope fallback/diagnostic metadata when version-sensitive caches are unavailable.
 - Layered forms are transient and may disappear during enumeration; the inspector
   returns bounded metadata and warnings and tolerates disposal races.
@@ -150,14 +161,15 @@ Stage 8 - AI Diagnostics started on the stacked `feature/v15-diagnostics` branch
 
 ## Next
 
-- Implement bounded layout/DPI/binding diagnostics, deterministic screenshot diff, accessibility checks, and read-only runtime event tracing.
+- Complete the Stage 8 feature commit, push it, and require Windows Core CI green.
+- Begin Stage 9 on a new stacked branch by adding a bounded incremental SourceIndex for source mapping.
 
-## Stage 8 Scope
+## Stage 9 Scope
 
-- Add the general diagnostics contract with explicit severity, code, control identity, message, and evidence fields.
-- Keep all RuntimeBridge reads UI-thread marshalled and read-only; no property setters, method invocation, or business execution.
-- Bound control traversal, diagnostic results, event trace storage, and screenshot diff work with cancellation and timeout propagation.
-- Preserve all existing MCP tools and add new diagnostics only through the existing ToolRegistry.
+- Index source roots, namespaces, partial types, Designer fields and initialization, event registrations, handler methods, and fully qualified symbols.
+- Cache per-file parse results by path, size, and modification time, with optional content hashing where timestamp precision is insufficient.
+- Reuse unchanged parse results and invalidate only changed/deleted files.
+- Keep scans bounded by max files, cancellation, and the existing tool timeout pipeline.
 
 ## Hard Blocker
 
@@ -202,3 +214,13 @@ None.
 - Focused Stage 7 RuntimeBridge, AntdUI provider, rendering, and renderer-pool tests: 33 passed.
 - Full elevated Release test run: 369 total, 325 passed, 44 skipped, 0 failed.
 - The existing AntdUI owner-drawn Input UIA action now passes using a bounded HWND WM_KEY/WM_CHAR fallback when ValuePattern is unavailable.
+
+## Stage 8 Gate Evidence
+
+- `dotnet format Rhombus.WinFormsMcp.sln --verbosity quiet`: passed.
+- `dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes --verbosity quiet`: passed.
+- `dotnet restore Rhombus.WinFormsMcp.sln`: passed.
+- `dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false`: passed with 0 warnings and 0 errors.
+- `dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false`: passed for net48, netcoreapp3.1, and net8.0-windows with 0 warnings and 0 errors.
+- Full elevated Release test run: 379 total, 335 passed, 44 skipped, 0 failed.
+- Final Gate results and Windows Core CI run IDs are recorded after the implementation commit is pushed.
