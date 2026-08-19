@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 9 - Incremental SourceIndex started on the stacked `feature/v16-source-index` branch after Stage 8 Core CI completed successfully.
+Stage 9 - Incremental SourceIndex completed locally on the stacked `feature/v16-source-index` branch after Stage 8 Core CI completed successfully. Stage 10 contract analysis is next after Core CI validation.
 
 ## Implemented
 
@@ -61,6 +61,10 @@ Stage 9 - Incremental SourceIndex started on the stacked `feature/v16-source-ind
 - Added deterministic screenshot comparison with PNG/base64 inputs, channel thresholding, changed bounds, bounded tile regions, and cancellation.
 - Added read-only accessibility diagnostics with managed AccessibleName/Description, TabIndex/TabStop, UIA correlation, ControlType, and supported patterns.
 - Added bounded whitelist-only RuntimeBridge event tracing for Click, TextChanged, CheckedChanged, SelectedIndexChanged, VisibleChanged, EnabledChanged, and FormClosing with ring buffer, cursor paging, expiry, and handler cleanup.
+- Added a canonical-root, thread-safe incremental `SourceIndex` for source mapping.
+- Indexed namespaces, partial class declarations, Designer fields, `InitializeComponent` references, event registrations, handler methods, and fully qualified symbols.
+- Reused unchanged syntax models by path/size/UTC mtime, reparsed changed files, removed deleted files, and preserved the prior committed index when a refresh is cancelled.
+- Added optional `maxFiles` to `winforms_get_source_mapping` and read-only scan metadata (`scanned`, `parsed`, `reused`, `removed`, `truncated`, and parse warnings).
 
 ## Architecture
 
@@ -80,11 +84,12 @@ Stage 9 - Incremental SourceIndex started on the stacked `feature/v16-source-ind
 - Rendering remains isolated in RendererHost; no AntdUI compile-time reference was added to Rendering, Server, RuntimeBridge, or RuntimeContracts.
 - Diagnostics remain generic and provider-independent; RuntimeBridge still exposes no setters, Method.Invoke, business method execution, or reflection execution surface.
 - Runtime event trace sessions own their subscriptions, have bounded lifetime/capacity, and are removed on Stop, expiry, session pressure, and host disposal.
+- SourceIndex state is isolated per canonical source root, serialized per root, bounded to a fixed number of roots/files, and never exposes Roslyn syntax objects through MCP.
 
 ## MCP Changes
 
 - Added: `winforms_detect_layout_issues`, `winforms_compare_screenshot`, `winforms_check_accessibility`, `winforms_start_event_trace`, `winforms_read_event_trace`, `winforms_stop_event_trace`.
-- Changed: `winforms_render_form` only by adding optional `theme`, `dpi`, and `providerProfile` parameters; no required parameter changed.
+- Changed: `winforms_render_form` only by adding optional `theme`, `dpi`, and `providerProfile` parameters; `winforms_get_source_mapping` adds optional `maxFiles`; no required parameter changed.
 - Extended: winforms_inspect_control can return AntdUI provider and semantic data through the existing optional provider/semantic sections.
 - Unchanged: all existing 40 tool names and required parameters remain compatible; the six additions are generic diagnostics and do not add AntdUI-specific tools.
 
@@ -100,6 +105,7 @@ Stage 9 - Incremental SourceIndex started on the stacked `feature/v16-source-ind
 ## Tests
 
 - Full local Stage 8 test run: 379 total, 335 passed, 44 skipped, 0 failed (elevated desktop session).
+- Full local Stage 9 Release test run: 384 total, 340 passed, 44 skipped, 0 failed.
 - New coverage:
   - AntdUI provider detection and fallback behavior.
   - AntdUI Button, Input, InputNumber, Checkbox, Radio, Switch, and Select semantics.
@@ -150,7 +156,7 @@ Stage 9 - Incremental SourceIndex started on the stacked `feature/v16-source-ind
 - Stage 4 Commit: b7ac9f2 feat: add AntdUI basic control inspection.
 - Stage 5 Commit: 700adc8 feat: add AntdUI complex semantic inspection.
 - Stage 6 Commit: cbc300f `feat: support AntdUI layered windows`.
-- Draft PR: #3 targets feature/v14-antdui-provider; Stage 9 Draft PR is pending creation against feature/v15-diagnostics.
+- Draft PR: #3 targets feature/v14-antdui-provider; Draft PR #4 targets feature/v15-diagnostics with head `feature/v16-source-index`.
 - Working Tree: clean before starting Stage 9 implementation.
 
 ## Risks
@@ -166,7 +172,8 @@ Stage 9 - Incremental SourceIndex started on the stacked `feature/v16-source-ind
 
 ## Next
 
-- Begin Stage 9 on a new stacked branch by adding a bounded incremental SourceIndex for source mapping.
+- Push the Stage 9 commit and wait for Draft PR #4 Core CI to become green.
+- Then create the Stage 10 contract-analysis commit after reading the local VS-MCPServer and CodeGraph reference repositories.
 
 ## Stage 9 Scope
 
@@ -178,6 +185,18 @@ Stage 9 - Incremental SourceIndex started on the stacked `feature/v16-source-ind
 ## Hard Blocker
 
 None.
+
+## Stage 9 Gate Evidence
+
+- Repository SDK: .NET 8.0.424; `global.json` unchanged and clean.
+- `dotnet format Rhombus.WinFormsMcp.sln --verbosity quiet`: passed.
+- `dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes --verbosity quiet`: passed.
+- `dotnet restore Rhombus.WinFormsMcp.sln`: passed.
+- `dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore /m:1 /nr:false`: passed with 0 warnings and 0 errors.
+- `dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore /m:1 /nr:false`: passed for net48, netcoreapp3.1, and net8.0-windows with 0 warnings and 0 errors.
+- Focused SourceIndex/source-mapping tests: 6 passed.
+- Full Release test run: 384 total, 340 passed, 44 skipped, 0 failed.
+- Core CI: pending Stage 9 commit push.
 
 ## Stage 6 Gate Evidence
 

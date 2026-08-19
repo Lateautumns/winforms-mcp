@@ -41,6 +41,7 @@ class Program {
                 });
                 services.AddSingleton<ISessionManager, SessionManager>();
                 services.AddSingleton<IRuntimeBridgeClient, NamedPipeRuntimeBridgeClient>();
+                services.AddSingleton<SourceIndex>();
                 services.AddSingleton<SourceMappingService>();
                 services.AddSingleton<ManagedUiaCorrelationService>();
                 services.AddSingleton<ScreenshotDiffService>();

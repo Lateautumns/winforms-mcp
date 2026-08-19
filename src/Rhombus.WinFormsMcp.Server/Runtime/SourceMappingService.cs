@@ -1,36 +1,43 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-
 using Rhombus.WinFormsMcp.RuntimeContracts;
 
 namespace Rhombus.WinFormsMcp.Server.Runtime;
 
 /// <summary>
 /// Maps a managed control name to Designer and code-behind source locations.
-/// The scanner is bounded and read-only; it never edits project files.
+/// Source files are read through a bounded incremental <see cref="SourceIndex"/>.
 /// </summary>
 internal sealed class SourceMappingService {
     private static readonly Regex TypeNamePattern = new(
         @"(?:global::)?(?<type>[A-Za-z_][A-Za-z0-9_.]*)",
         RegexOptions.Compiled);
-    private const int MaxSourceFiles = 5000;
+
+    private readonly SourceIndex _sourceIndex;
+
+    public SourceMappingService() : this(new SourceIndex()) { }
+
+    public SourceMappingService(SourceIndex sourceIndex) {
+        _sourceIndex = sourceIndex;
+    }
 
     public Task<SourceMappingSnapshot> MapAsync(
         int processId,
         ControlIdentity control,
         string? sourceRoot,
-        CancellationToken cancellationToken) =>
-        Task.Run(() => Map(processId, control, sourceRoot, cancellationToken), cancellationToken);
+        CancellationToken cancellationToken,
+        int? maxFiles = null) =>
+        Task.Run(
+            () => MapAsyncCore(processId, control, sourceRoot, cancellationToken, maxFiles),
+            cancellationToken);
 
-    private SourceMappingSnapshot Map(
+    private async Task<SourceMappingSnapshot> MapAsyncCore(
         int processId,
         ControlIdentity control,
         string? sourceRoot,
-        CancellationToken cancellationToken) {
+        CancellationToken cancellationToken,
+        int? maxFiles) {
         var result = new SourceMappingSnapshot { Control = control };
         var ownerType = NormalizeTypeName(control.OwnerType);
         var ownerTypeName = GetSimpleTypeName(ownerType);
@@ -50,42 +57,19 @@ internal sealed class SourceMappingService {
             return result;
         }
 
-        var files = EnumerateSourceFiles(root);
-        var candidates = new List<(string Path, SyntaxTree Tree, CompilationUnitSyntax Unit, ClassDeclarationSyntax Type)>();
-        foreach (var file in files) {
-            cancellationToken.ThrowIfCancellationRequested();
-            string text;
-            try {
-                text = File.ReadAllText(file);
-            }
-            catch {
-                continue;
-            }
+        var index = await _sourceIndex.RefreshAsync(root, maxFiles, cancellationToken).ConfigureAwait(false);
+        result.Index = index.Metadata;
+        result.Warnings.AddRange(index.Metadata.Warnings);
+        if (index.Metadata.Truncated)
+            result.Warnings.Add($"Source scan was truncated at {index.Metadata.MaxFiles} files.");
 
-            var tree = CSharpSyntaxTree.ParseText(text, path: file, cancellationToken: cancellationToken);
-            var unit = tree.GetCompilationUnitRoot(cancellationToken);
-            foreach (var type in unit.DescendantNodes().OfType<ClassDeclarationSyntax>()) {
-                var namespaceName = GetNamespace(type);
-                var candidateType = string.IsNullOrWhiteSpace(namespaceName)
-                    ? type.Identifier.ValueText
-                    : $"{namespaceName}.{type.Identifier.ValueText}";
-                if (!string.Equals(type.Identifier.ValueText, ownerTypeName, StringComparison.Ordinal) ||
-                    (ownerType.Contains('.', StringComparison.Ordinal) &&
-                     !string.Equals(candidateType, ownerType, StringComparison.Ordinal)))
-                    continue;
-                candidates.Add((file, tree, unit, type));
-                if (string.IsNullOrWhiteSpace(result.Namespace))
-                    result.Namespace = namespaceName;
-                if (string.IsNullOrWhiteSpace(result.Type))
-                    result.Type = ownerTypeName;
-                if (string.IsNullOrWhiteSpace(result.FullyQualifiedType))
-                    result.FullyQualifiedType = string.IsNullOrWhiteSpace(namespaceName)
-                        ? ownerTypeName
-                        : $"{namespaceName}.{ownerTypeName}";
-            }
-        }
-
-        if (candidates.Count == 0) {
+        var candidates = index.Types
+            .Where(type => string.Equals(type.Name, ownerTypeName, StringComparison.Ordinal) &&
+                          (!ownerType.Contains('.', StringComparison.Ordinal) ||
+                           string.Equals(type.FullyQualifiedName, ownerType, StringComparison.Ordinal)))
+            .OrderBy(type => type.Path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (candidates.Length == 0) {
             result.Warnings.Add($"No source declaration for owning Form '{ownerTypeName}' was found under '{root}'.");
             return result;
         }
@@ -94,112 +78,60 @@ internal sealed class SourceMappingService {
             candidate.Path.EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase));
         var codeBehind = candidates.FirstOrDefault(candidate =>
             !candidate.Path.EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase));
+        var owner = candidates.First();
 
-        if (!string.IsNullOrWhiteSpace(designer.Path)) {
-            result.Designer = ToLocation(designer.Type.Identifier.GetLocation(), designer.Path);
-            result.Declaration = FindFieldLocation(designer, control.Name);
-            result.Initialization = FindInitializationLocation(designer, control.Name);
-            FindEvents(designer, control.Name, result, cancellationToken);
-        }
-        else {
+        result.Namespace = owner.Namespace;
+        result.Type = owner.Name;
+        result.FullyQualifiedType = owner.FullyQualifiedName;
+
+        if (designer is null) {
             result.Warnings.Add("A .Designer.cs partial class was not found.");
         }
+        else {
+            result.Designer = ToClassLocation(designer);
+            if (designer.Fields.TryGetValue(control.Name, out var declaration))
+                result.Declaration = declaration;
+            if (designer.Initialization.TryGetValue(control.Name, out var initialization))
+                result.Initialization = initialization;
+        }
 
-        if (!string.IsNullOrWhiteSpace(codeBehind.Path)) {
-            result.CodeBehindFile = codeBehind.Path;
-            FindEventMethods(codeBehind, result, cancellationToken);
+        if (codeBehind is null) {
+            result.Warnings.Add("A non-Designer code-behind file was not found.");
         }
         else {
-            result.Warnings.Add("A non-Designer code-behind file was not found.");
+            result.CodeBehindFile = codeBehind.Path;
+        }
+
+        foreach (var eventRegistration in candidates
+                     .SelectMany(candidate => candidate.Events)
+                     .Where(item => string.Equals(item.ControlName, control.Name, StringComparison.Ordinal))
+                     .OrderBy(item => item.Location.File, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(item => item.Location.Line)) {
+            if (result.Events.ContainsKey(eventRegistration.Event))
+                continue;
+
+            var handlerLocation = candidates
+                .Where(candidate => !candidate.Path.EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase))
+                .Select(candidate => candidate.Methods.TryGetValue(eventRegistration.Method, out var location)
+                    ? location
+                    : null)
+                .FirstOrDefault(location => location is not null);
+            var location = handlerLocation ?? eventRegistration.Location;
+            var fullyQualifiedSymbol = string.IsNullOrWhiteSpace(result.FullyQualifiedType)
+                ? eventRegistration.Method
+                : $"{result.FullyQualifiedType}.{eventRegistration.Method}";
+            result.Events[eventRegistration.Event] = new EventHandlerSnapshot {
+                Event = eventRegistration.Event,
+                Method = eventRegistration.Method,
+                File = location.File,
+                Line = location.Line,
+                FullyQualifiedSymbol = fullyQualifiedSymbol
+            };
+            if (handlerLocation is null)
+                result.Warnings.Add($"Event handler '{eventRegistration.Method}' was not found in a non-Designer partial class.");
         }
 
         return result;
-    }
-
-    private static SourceLocationSnapshot? FindFieldLocation(
-        (string Path, SyntaxTree Tree, CompilationUnitSyntax Unit, ClassDeclarationSyntax Type) candidate,
-        string controlName) {
-        var field = candidate.Type.Members
-            .OfType<FieldDeclarationSyntax>()
-            .FirstOrDefault(field => field.Declaration.Variables.Any(variable =>
-                string.Equals(variable.Identifier.ValueText, controlName, StringComparison.Ordinal)));
-        return field is null ? null : ToLocation(field.GetLocation(), candidate.Path);
-    }
-
-    private static SourceLocationSnapshot? FindInitializationLocation(
-        (string Path, SyntaxTree Tree, CompilationUnitSyntax Unit, ClassDeclarationSyntax Type) candidate,
-        string controlName) {
-        var initializeMethod = candidate.Type.Members
-            .OfType<MethodDeclarationSyntax>()
-            .FirstOrDefault(method => string.Equals(method.Identifier.ValueText, "InitializeComponent", StringComparison.Ordinal));
-        if (initializeMethod is null)
-            return null;
-
-        var statement = initializeMethod.DescendantNodes()
-            .OfType<StatementSyntax>()
-            .FirstOrDefault(statement => statement.ToString().Contains(controlName, StringComparison.Ordinal));
-        return statement is null ? null : ToLocation(statement.GetLocation(), candidate.Path);
-    }
-
-    private static void FindEvents(
-        (string Path, SyntaxTree Tree, CompilationUnitSyntax Unit, ClassDeclarationSyntax Type) candidate,
-        string controlName,
-        SourceMappingSnapshot result,
-        CancellationToken cancellationToken) {
-        foreach (var assignment in candidate.Type.DescendantNodes()
-                     .OfType<AssignmentExpressionSyntax>()
-                     .Where(item => item.IsKind(SyntaxKind.AddAssignmentExpression))) {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (assignment.Left is not MemberAccessExpressionSyntax eventAccess ||
-                !IsControlExpression(eventAccess.Expression, controlName))
-                continue;
-
-            if (assignment.Right.DescendantNodesAndSelf().OfType<AnonymousFunctionExpressionSyntax>().Any())
-                continue;
-
-            var handler = assignment.Right.DescendantNodesAndSelf()
-                .OfType<MemberAccessExpressionSyntax>()
-                .LastOrDefault(access => access.Expression is ThisExpressionSyntax)
-                ?.Name.Identifier.ValueText;
-            handler ??= assignment.Right.DescendantNodesAndSelf()
-                .OfType<IdentifierNameSyntax>()
-                .LastOrDefault()
-                ?.Identifier.ValueText;
-            if (string.IsNullOrWhiteSpace(handler))
-                continue;
-
-            var eventName = eventAccess.Name.Identifier.ValueText;
-            var location = ToLocation(assignment.GetLocation(), candidate.Path);
-            result.Events[eventName] = new EventHandlerSnapshot {
-                Event = eventName,
-                Method = handler,
-                File = candidate.Path,
-                Line = location.Line
-            };
-        }
-    }
-
-    private static void FindEventMethods(
-        (string Path, SyntaxTree Tree, CompilationUnitSyntax Unit, ClassDeclarationSyntax Type) candidate,
-        SourceMappingSnapshot result,
-        CancellationToken cancellationToken) {
-        foreach (var mapping in result.Events.Values) {
-            cancellationToken.ThrowIfCancellationRequested();
-            var method = candidate.Type.Members
-                .OfType<MethodDeclarationSyntax>()
-                .FirstOrDefault(item => string.Equals(item.Identifier.ValueText, mapping.Method, StringComparison.Ordinal));
-            if (method is null) {
-                result.Warnings.Add($"Event handler '{mapping.Method}' was not found in '{candidate.Path}'.");
-                continue;
-            }
-
-            var location = ToLocation(method.GetLocation(), candidate.Path);
-            mapping.File = candidate.Path;
-            mapping.Line = location.Line;
-            mapping.FullyQualifiedSymbol = string.IsNullOrWhiteSpace(result.FullyQualifiedType)
-                ? mapping.Method
-                : $"{result.FullyQualifiedType}.{mapping.Method}";
-        }
     }
 
     private static string? ResolveRoot(int processId, string? sourceRoot) {
@@ -222,21 +154,10 @@ internal sealed class SourceMappingService {
             }
             return directory;
         }
-        catch {
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or
+                                   UnauthorizedAccessException or IOException or
+                                   System.ComponentModel.Win32Exception) {
             return null;
-        }
-    }
-
-    private static IReadOnlyList<string> EnumerateSourceFiles(string root) {
-        try {
-            return Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
-                .Where(file => !file.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                .Where(file => !file.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                .Take(MaxSourceFiles)
-                .ToArray();
-        }
-        catch (Exception) {
-            return Array.Empty<string>();
         }
     }
 
@@ -254,29 +175,5 @@ internal sealed class SourceMappingService {
             : value;
     }
 
-    private static bool IsControlExpression(ExpressionSyntax expression, string controlName) => expression switch {
-        IdentifierNameSyntax identifier => string.Equals(identifier.Identifier.ValueText, controlName, StringComparison.Ordinal),
-        MemberAccessExpressionSyntax member => string.Equals(member.Name.Identifier.ValueText, controlName, StringComparison.Ordinal),
-        _ => false
-    };
-
-    private static string GetNamespace(ClassDeclarationSyntax type) {
-        var namespaces = type.Ancestors()
-            .OfType<BaseNamespaceDeclarationSyntax>()
-            .Select(item => item.Name.ToString())
-            .Reverse()
-            .ToArray();
-        return string.Join(".", namespaces);
-    }
-
-    private static SourceLocationSnapshot ToLocation(Location location, string file) {
-        var span = location.GetLineSpan();
-        return new SourceLocationSnapshot {
-            File = file,
-            Line = span.StartLinePosition.Line + 1,
-            Column = span.StartLinePosition.Character + 1,
-            EndLine = span.EndLinePosition.Line + 1,
-            EndColumn = span.EndLinePosition.Character + 1
-        };
-    }
+    private static SourceLocationSnapshot ToClassLocation(IndexedSourceType candidate) => candidate.TypeLocation;
 }

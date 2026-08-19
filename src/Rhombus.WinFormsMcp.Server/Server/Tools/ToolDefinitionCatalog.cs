@@ -117,7 +117,8 @@ internal static class ToolDefinitionCatalog {
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID"))), "pid", "controlId"),
         Define(ToolNames.GetSourceMapping, "Map a managed control to its Designer declaration, initialization, and event handler symbols.", Props(
             ("pid", Integer("Target process ID")), ("controlId", String("Managed control ID")),
-            ("sourceRoot", String("Optional source or solution root to scan"))), "pid", "controlId"),
+            ("sourceRoot", String("Optional source or solution root to scan")),
+            ("maxFiles", Integer("Maximum source files to scan and index"))), "pid", "controlId"),
         Define(ToolNames.DetectLayoutIssues, "Detect bounded, evidence-based WinForms layout, DPI, and binding issues.", Props(
             ("pid", Integer("Target process ID")), ("rootId", String("Optional managed root control ID")),
             ("checks", Array("Checks: layout, dpi, or bindings", "string")),

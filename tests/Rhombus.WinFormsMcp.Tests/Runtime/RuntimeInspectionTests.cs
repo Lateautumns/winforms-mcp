@@ -654,7 +654,21 @@ public sealed class RuntimeInspectionTests {
                 Assert.That(mapping.Initialization?.Line, Is.EqualTo(4));
                 Assert.That(mapping.Events["Click"].File, Is.EqualTo(codeBehind));
                 Assert.That(mapping.Events["Click"].FullyQualifiedSymbol, Is.EqualTo("Demo.TestForm.BtnSave_Click"));
+                Assert.That(mapping.Index?.Scanned, Is.EqualTo(3));
+                Assert.That(mapping.Index?.Parsed, Is.EqualTo(3));
+                Assert.That(mapping.Index?.Reused, Is.Zero);
                 Assert.That(mapping.Warnings, Is.Empty);
+            });
+
+            var reused = await service.MapAsync(
+                Environment.ProcessId,
+                mapping.Control,
+                root,
+                CancellationToken.None);
+            Assert.Multiple(() => {
+                Assert.That(reused.Index?.Parsed, Is.Zero);
+                Assert.That(reused.Index?.Reused, Is.EqualTo(3));
+                Assert.That(reused.Events["Click"].FullyQualifiedSymbol, Is.EqualTo("Demo.TestForm.BtnSave_Click"));
             });
         }
         finally {
