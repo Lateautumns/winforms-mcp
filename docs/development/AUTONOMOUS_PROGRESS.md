@@ -2,7 +2,7 @@
 
 ## Stage
 
-Stage 7 - Rendering / Theme / DPI complete; local and Windows Core CI green.
+Stage 8 - AI Diagnostics started on the stacked `feature/v15-diagnostics` branch.
 
 ## Implemented
 
@@ -127,15 +127,15 @@ Stage 7 - Rendering / Theme / DPI complete; local and Windows Core CI green.
 
 ## Git
 
-- Base Branch: feature/v11-foundation-refactor.
-- Current Branch: feature/v14-antdui-provider.
+- Base Branch: feature/v14-antdui-provider.
+- Current Branch: feature/v15-diagnostics.
 - Stage 7 Commit: f3bf321 `feat: support render theme and dpi profiles`.
-- Current Head: f3bf321 `feat: support render theme and dpi profiles`.
+- Current Head: 28c756c `docs: record stage 7 ci status`.
 - Stage 4 Commit: b7ac9f2 feat: add AntdUI basic control inspection.
 - Stage 5 Commit: 700adc8 feat: add AntdUI complex semantic inspection.
 - Stage 6 Commit: cbc300f `feat: support AntdUI layered windows`.
-- Draft PR: #2, target feature/v11-foundation-refactor.
-- Working Tree: clean after Stage 7 commit and CI status update pending.
+- Draft PR: #2 remains the provider PR; Draft PR #3 will target feature/v14-antdui-provider.
+- Working Tree: clean before Stage 8 implementation.
 
 ## Risks
 
@@ -150,7 +150,14 @@ Stage 7 - Rendering / Theme / DPI complete; local and Windows Core CI green.
 
 ## Next
 
-- Stage 7 local and Windows Core CI are green after the AntdUI owner-drawn input regression fix; continue to Stage 8 Diagnostics on a stacked feature branch.
+- Implement bounded layout/DPI/binding diagnostics, deterministic screenshot diff, accessibility checks, and read-only runtime event tracing.
+
+## Stage 8 Scope
+
+- Add the general diagnostics contract with explicit severity, code, control identity, message, and evidence fields.
+- Keep all RuntimeBridge reads UI-thread marshalled and read-only; no property setters, method invocation, or business execution.
+- Bound control traversal, diagnostic results, event trace storage, and screenshot diff work with cancellation and timeout propagation.
+- Preserve all existing MCP tools and add new diagnostics only through the existing ToolRegistry.
 
 ## Hard Blocker
 
