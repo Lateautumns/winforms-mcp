@@ -332,10 +332,14 @@ public sealed class RuntimeBridgeHost : IDisposable {
         };
     }
 
-    private async Task<BridgeHello> GetHelloAsync(CancellationToken cancellationToken) {
-        var hello = await _dispatcher.InvokeAsync(_inspector.GetHello, cancellationToken).ConfigureAwait(false);
+    private Task<BridgeHello> GetHelloAsync(CancellationToken cancellationToken) {
+        cancellationToken.ThrowIfCancellationRequested();
+        // Handshake commands never touch controls, so they deliberately bypass
+        // the UI dispatcher. This keeps hello/get_status available on hosts
+        // without a UI target and after the bound control has been disposed.
+        var hello = _inspector.GetHello();
         hello.BridgeInstanceId = _bridgeInstanceId;
-        return hello;
+        return Task.FromResult(hello);
     }
 
     private static string? TryGetBridgeInstanceId(JsonElement result) {
