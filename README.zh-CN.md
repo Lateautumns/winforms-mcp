@@ -98,7 +98,7 @@ dotnet run --project src/Rhombus.WinFormsMcp.Server -c Release
 ```csharp
 using Rhombus.WinFormsMcp.RuntimeBridge;
 
-form.Shown += (_, _) => McpRuntimeBridge.Start();
+form.Shown += (_, _) => McpRuntimeBridge.StartForControl(form);
 form.FormClosed += (_, _) => McpRuntimeBridge.Stop();
 ```
 

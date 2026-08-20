@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <RootNamespace>Rhombus.WinFormsMcp.Net472Consumer</RootNamespace>
+    <AssemblyName>Net472Consumer.Sdk</AssemblyName>
+    <LangVersion>7.3</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- Explicit auto binding-redirect generation for the .NET Framework target. -->
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+    <RuntimeBridgePackageVersion Condition="'$(RuntimeBridgePackageVersion)' == ''">1.5.12-beta</RuntimeBridgePackageVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Explicit framework references so the project builds identically under
+         any SDK/MSBuild combination (the legacy project declares the same set). -->
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\MainForm.cs" Link="MainForm.cs" />
+    <Compile Include="..\Shared\Program.cs" Link="Program.cs" />
+  </ItemGroup>
+
+  <!--
+    PackageReference only: this consumer must restore and build against the
+    locally packed Rhombus.WinFormsMcp.RuntimeBridge package. The version must
+    match the repository VERSION file.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Rhombus.WinFormsMcp.RuntimeBridge" Version="$(RuntimeBridgePackageVersion)" />
+  </ItemGroup>
+
+</Project>

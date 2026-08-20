@@ -10,21 +10,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Read-only RuntimeBridge identity correlation scoped by process and bridge instance.
+- Official .NET Framework 4.7.2 support: `Rhombus.WinFormsMcp.RuntimeBridge` now targets `net472;net48;net8.0-windows`, with a new `McpRuntimeBridge.StartForControl(Control, RuntimeBridgeOptions?)` entry point that binds the bridge to a control from `Form.Shown` and validates the control before starting.
+- Two minimal .NET Framework 4.7.2 consumers (SDK-style and legacy non-SDK projects) that reference only the packed `Rhombus.WinFormsMcp.RuntimeBridge` package via `PackageReference`; `scripts/verify-net472-consumers.ps1` restores, builds, launches, and verifies both over Protocol v1 end to end.
+- Unified packaging (`scripts/pack-nuget.ps1`) and version-sync (`scripts/sync-version.ps1`) scripts shared by local packaging, CI, and release workflows.
 - Release-preparation documentation for compatibility, migration, architecture, and local packaging.
 
 ### Changed
 
 - Runtime and diagnostics references can carry an optional `bridgeInstanceId` to reject stale application references while preserving legacy clients.
 - Local packaging now verifies the server, RuntimeContracts, RuntimeBridge, RendererHost, and NPM distribution artifacts without publishing them.
+- `McpRuntimeBridge.Start()` keeps source/binary compatibility but fails fast with a `StartForControl` migration hint when no open form and no WinForms UI synchronization context is available; the UI dispatcher never falls back to cross-thread control access and fails requests explicitly when the bound control is invalid.
+- Both TestApps now start the bridge with `StartForControl(form)` in `Form.Shown` and stop it in `FormClosed`.
+- `global.json` pins SDK `8.0.100` with `rollForward=latestFeature`; CI and release workflows install the pinned SDK, configure Visual Studio MSBuild, and run the three-package check plus the two net472 consumer smoke tests as release gates.
 
 ### Compatibility
 
-- Existing MCP tool names and required parameters remain unchanged.
-- RuntimeBridge targets .NET Framework 4.8 and .NET 8 Windows; RendererHost remains multi-targeted for net48, netcoreapp3.1, and net8.0-windows.
+- Existing MCP tool names and required parameters remain unchanged; Protocol v1, `Stop`, and `StopAsync` are unchanged.
+- `Rhombus.WinFormsMcp.RuntimeContracts` stays a single-target `netstandard2.0` assembly; `Rhombus.WinFormsMcp.RuntimeBridge` targets `net472`, `net48`, and `net8.0-windows`; RendererHost remains multi-targeted for net48, netcoreapp3.1, and net8.0-windows.
+- Compile target and runtime CLR are distinct: consumers compile against the 4.7.2 targeting pack, while current runtime evidence is a local E2E run on the installed CLR (4.8.x). Hosted CI is configured but not yet evidenced for this branch; verification on a machine with only the original 4.7.2 runtime is not claimed.
 
 ### Release status
 
-- This is an unreleased preparation draft. No NuGet push, NPM publish, GitHub Release, or `main` modification is performed.
+- This is an unreleased preparation draft. No NuGet push, NPM publish, GitHub Release, commit, tag, or `main` modification is performed. When released, this backwards-compatible feature ships as a SemVer minor bump.
 
 ## [1.0.0] - 2024-10-21
 

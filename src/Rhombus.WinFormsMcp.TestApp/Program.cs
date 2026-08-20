@@ -12,7 +12,7 @@ static class Program {
         // see https://aka.ms/applicationconfiguration.
         ApplicationConfiguration.Initialize();
         var form = new Form1();
-        form.Shown += (_, _) => McpRuntimeBridge.Start();
+        form.Shown += (_, _) => McpRuntimeBridge.StartForControl(form);
         form.FormClosed += (_, _) => McpRuntimeBridge.Stop();
         Application.Run(form);
     }

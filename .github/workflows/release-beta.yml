@@ -1,8 +1,6 @@
 name: Release Beta
 
 on:
-  push:
-    branches: [ dev ]
   workflow_dispatch:
 
 concurrency:
@@ -11,8 +9,6 @@ concurrency:
 
 jobs:
   release-beta:
-    # Skip version-bump commits to avoid infinite loops
-    if: "github.event_name == 'workflow_dispatch' || (!contains(github.event.head_commit.message, '[skip ci]') && !startsWith(github.event.head_commit.message, 'chore: bump version to'))"
     runs-on: windows-latest
     permissions:
       contents: write
@@ -21,25 +17,26 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        ref: dev
         fetch-depth: 0
 
-    - name: Setup .NET
+    - name: Validate beta release ref
+      shell: pwsh
+      run: |
+        $releaseRef = "${{ github.ref }}"
+        if (-not $releaseRef.StartsWith("refs/heads/")) {
+          throw "Beta releases must be dispatched from a branch ref; got '$releaseRef'."
+        }
+        if ($releaseRef -eq "refs/heads/main") {
+          throw "Dispatch the beta workflow from a feature or release branch, not main. Pushing a beta version commit to main would trigger the stable release workflow."
+        }
+
+    - name: Setup .NET (pinned SDK from global.json)
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        global-json-file: global.json
 
-    - name: Restore dependencies
-      run: dotnet restore Rhombus.WinFormsMcp.sln
-
-    - name: Build
-      run: dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore
-
-    - name: Build RendererHost (multi-target)
-      run: dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore
-
-    - name: Run tests
-      run: dotnet test Rhombus.WinFormsMcp.sln --configuration Release --no-build --logger "console;verbosity=detailed"
+    - name: Setup MSBuild (Visual Studio)
+      uses: microsoft/setup-msbuild@v2
 
     - name: Analyze commits for version bump
       id: bump-type
@@ -67,11 +64,7 @@ jobs:
       shell: pwsh
       run: |
         # Read current version
-        $version = (Get-Content VERSION).Trim()
-        Write-Host "Current version: $version"
-
-        # Remove -beta suffix if present
-        $version = $version -replace '-beta$', ''
+        $version = (Get-Content VERSION).Trim() -replace '-beta$', ''
 
         # Parse version
         $parts = $version.Split('.')
@@ -96,40 +89,46 @@ jobs:
           }
         }
 
-        # Create new version with beta suffix
+        # Create new version with beta suffix and sync every version source
         $newVersion = "$major.$minor.$patch-beta"
         Write-Host "New version: $newVersion"
-
-        # Write to VERSION file
-        $newVersion | Out-File -FilePath VERSION -NoNewline -Encoding utf8
-
-        # Update npm package.json
-        $packageJson = Get-Content npm/package.json | ConvertFrom-Json
-        $packageJson.version = $newVersion
-        $packageJson | ConvertTo-Json -Depth 10 | Out-File -FilePath npm/package.json -Encoding utf8
-
-        # Update .csproj version
-        $csprojPath = "src/Rhombus.WinFormsMcp.Server/Rhombus.WinFormsMcp.Server.csproj"
-        $csproj = [xml](Get-Content $csprojPath)
-        $versionNode = $csproj.SelectSingleNode("//PropertyGroup/Version")
-        if ($versionNode) {
-          $versionNode.InnerText = $newVersion
-          $csproj.Save($csprojPath)
-        }
+        ./scripts/sync-version.ps1 -NewVersion $newVersion
 
         echo "new_version=$newVersion" >> $env:GITHUB_OUTPUT
         echo "bump_type=$bumpType" >> $env:GITHUB_OUTPUT
+
+    # Release gates validate the final beta version and the exact NuGet files
+    # that will be published. No commit or remote mutation occurs before them.
+    - name: Restore dependencies
+      run: dotnet restore Rhombus.WinFormsMcp.sln
+
+    - name: Verify code formatting
+      run: dotnet format Rhombus.WinFormsMcp.sln --verify-no-changes --verbosity quiet
+
+    - name: Build
+      run: dotnet build Rhombus.WinFormsMcp.sln --configuration Release --no-restore
+
+    - name: Build RendererHost (multi-target)
+      run: dotnet build src/Rhombus.WinFormsMcp.RendererHost/Rhombus.WinFormsMcp.RendererHost.csproj --configuration Release --no-restore
+
+    - name: Run tests
+      run: dotnet test Rhombus.WinFormsMcp.sln --configuration Release --no-build --logger "console;verbosity=detailed"
+
+    - name: Check the three NuGet packages
+      shell: pwsh
+      run: ./scripts/pack-nuget.ps1 -Configuration Release -Version ${{ steps.bump.outputs.new_version }} -OutputRoot ./package-publish
+
+    - name: Smoke-test .NET Framework 4.7.2 consumers
+      shell: pwsh
+      run: ./scripts/verify-net472-consumers.ps1 -Configuration Release -PackageRoot ./package-publish/nuget
 
     - name: Commit version bump
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add VERSION npm/package.json src/Rhombus.WinFormsMcp.Server/Rhombus.WinFormsMcp.Server.csproj
+        git add VERSION npm/package.json src/Rhombus.WinFormsMcp.Server/Rhombus.WinFormsMcp.Server.csproj src/Rhombus.WinFormsMcp.RuntimeContracts/Rhombus.WinFormsMcp.RuntimeContracts.csproj src/Rhombus.WinFormsMcp.RuntimeBridge/Rhombus.WinFormsMcp.RuntimeBridge.csproj
         git commit -m "chore: bump version to ${{ steps.bump.outputs.new_version }} (${{ steps.bump.outputs.bump_type }})"
         git push
-
-    - name: Create NuGet package
-      run: dotnet pack src/Rhombus.WinFormsMcp.Server/Rhombus.WinFormsMcp.Server.csproj -c Release -p:Version=${{ steps.bump.outputs.new_version }}
 
     # NPM beta publishing disabled — only stable releases publish to npm
 
@@ -139,11 +138,18 @@ jobs:
       with:
         user: butler.software
 
+    # Publish order is contracts first, bridge second, server last; NuGet has
+    # no cross-package transaction, so --skip-duplicate makes a failed rerun safe.
     - name: Publish beta to NuGet
-      run: |
-        $nupkg = Get-ChildItem -Path "src/Rhombus.WinFormsMcp.Server/bin/Release" -Filter "Rhombus.WinFormsMcp.${{ steps.bump.outputs.new_version }}.nupkg" | Select-Object -First 1
-        if ($nupkg) {
-          Write-Host "Publishing $($nupkg.Name) to NuGet with beta tag..."
-          dotnet nuget push $nupkg.FullName --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-        }
       shell: pwsh
+      run: |
+        $packages = @(
+          "Rhombus.WinFormsMcp.RuntimeContracts",
+          "Rhombus.WinFormsMcp.RuntimeBridge",
+          "Rhombus.WinFormsMcp"
+        )
+        foreach ($packageId in $packages) {
+          $nupkg = "./package-publish/nuget/$packageId.${{ steps.bump.outputs.new_version }}.nupkg"
+          Write-Host "Publishing $($nupkg) to NuGet with beta tag..."
+          dotnet nuget push $nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+        }

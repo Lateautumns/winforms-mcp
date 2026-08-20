@@ -126,7 +126,7 @@ An application can expose its real managed WinForms tree by referencing
 ```csharp
 using Rhombus.WinFormsMcp.RuntimeBridge;
 
-form.Shown += (_, _) => McpRuntimeBridge.Start();
+form.Shown += (_, _) => McpRuntimeBridge.StartForControl(form);
 form.FormClosed += (_, _) => McpRuntimeBridge.Stop();
 ```
 
@@ -209,9 +209,12 @@ TFM and referenced DLL metadata, so rebuilding a custom control invalidates stal
 previews.
 
 `Rhombus.WinFormsMcp.RuntimeContracts` contains the framework-neutral Bridge Protocol v1
-DTOs. `Rhombus.WinFormsMcp.RuntimeBridge` targets `net48` and `net8.0-windows`, so it can
-be referenced by the two most common WinForms application families without taking a
-dependency on FlaUI or the MCP Server.
+DTOs and stays a single-target `netstandard2.0` assembly, so .NET Framework 4.7.2/4.8
+and .NET 8 consumers share one contracts DLL. `Rhombus.WinFormsMcp.RuntimeBridge`
+targets `net472`, `net48`, and `net8.0-windows`, so it can cover .NET Framework
+4.7.2/4.8 and modern Windows desktop WinForms applications. Target applications start
+the bridge from `Form.Shown` with `McpRuntimeBridge.StartForControl(form)` and stop it
+from `FormClosed`; see the [migration guide](docs/release/Migration-Guide.md).
 
 ## Local release preparation
 

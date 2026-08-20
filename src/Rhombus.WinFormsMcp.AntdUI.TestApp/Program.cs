@@ -8,7 +8,7 @@ internal static class Program {
         ApplicationConfiguration.Initialize();
         var form = new AntdUiInspectionForm();
         form.Shown += (_, _) => {
-            McpRuntimeBridge.Start();
+            McpRuntimeBridge.StartForControl(form);
             var popup = Environment.GetEnvironmentVariable("WINFORMS_MCP_OPEN_ANTDUI_POPUP");
             if (string.Equals(popup, "select", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(popup, "1", StringComparison.Ordinal))

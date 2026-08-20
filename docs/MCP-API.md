@@ -132,13 +132,15 @@ UI thread and only snapshot DTOs cross the named pipe.
 The optional bridge package is intentionally framework-neutral at the contract
 boundary:
 
-- `Rhombus.WinFormsMcp.RuntimeContracts`: `netstandard2.0` DTOs and Protocol v1.
-- `Rhombus.WinFormsMcp.RuntimeBridge`: `net48` and `net8.0-windows`.
-- The bridge must be started from the target application's UI thread and should
-  be stopped during form shutdown. It returns snapshots only.
-- A `net472` application such as NGUS2 cannot reference the current `net48`
-  bridge without a compatibility experiment. UIA automation and rendering do
-  not require a bridge and remain the fallback path.
+- `Rhombus.WinFormsMcp.RuntimeContracts`: single-target `netstandard2.0` DTOs and
+  Protocol v1.
+- `Rhombus.WinFormsMcp.RuntimeBridge`: `net472`, `net48`, and `net8.0-windows`.
+- The bridge is started from the target application's UI thread, preferably with
+  `McpRuntimeBridge.StartForControl(form)` from `Form.Shown`, and should be stopped
+  during form shutdown (`FormClosed`). It returns snapshots only.
+- A `net472` application can now match the `net472` RuntimeBridge target directly.
+  UIA automation and rendering remain fallback paths if bridge startup is not
+  enabled.
 - No tool in this document authorizes editing Designer code, invoking VS MCP,
   invoking CodeGraph MCP, arbitrary reflection, or changing runtime properties.
 

@@ -439,13 +439,18 @@ public sealed class RuntimeBridgeLifecycleTests {
     [Timeout(10000)]
     public async Task McpRuntimeBridge_StopIsRepeatableAndAllowsRestartOnSamePipe() {
         var pipeName = CreatePipeName();
+        var previousContext = SynchronizationContext.Current;
         try {
-            var first = McpRuntimeBridge.Start(new RuntimeBridgeOptions { PipeName = pipeName });
+            // No form is open in this process, so the legacy Start() only accepts
+            // a confirmable WinForms UI synchronization context. The context is
+            // restored before any await: a WindowsFormsSynchronizationContext
+            // without a message loop never executes posted continuations.
+            var first = StartWithWinFormsContext(pipeName);
             await SendRequestAsync(pipeName, RuntimeBridgeProtocol.GetStatus);
             await McpRuntimeBridge.StopAsync();
             McpRuntimeBridge.Stop();
 
-            var second = McpRuntimeBridge.Start(new RuntimeBridgeOptions { PipeName = pipeName });
+            var second = StartWithWinFormsContext(pipeName);
             try {
                 var response = await SendRequestAsync(pipeName, RuntimeBridgeProtocol.GetStatus);
 
@@ -460,6 +465,17 @@ public sealed class RuntimeBridgeLifecycleTests {
         }
         finally {
             McpRuntimeBridge.Stop();
+            SynchronizationContext.SetSynchronizationContext(previousContext);
+        }
+    }
+
+    private static RuntimeBridgeHost StartWithWinFormsContext(string pipeName) {
+        SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+        try {
+            return McpRuntimeBridge.Start(new RuntimeBridgeOptions { PipeName = pipeName });
+        }
+        finally {
+            SynchronizationContext.SetSynchronizationContext(null);
         }
     }
 
