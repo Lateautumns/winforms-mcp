@@ -48,8 +48,16 @@
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.10" />
     <!-- Caching for RendererProcessPool -->
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.10" />
-    <ProjectReference Include="..\Rhombus.WinFormsMcp.Rendering\Rhombus.WinFormsMcp.Rendering.csproj" />
+    <ProjectReference Include="..\Rhombus.WinFormsMcp.Rendering\Rhombus.WinFormsMcp.Rendering.csproj" PrivateAssets="all" />
     <ProjectReference Include="..\Rhombus.WinFormsMcp.RuntimeContracts\Rhombus.WinFormsMcp.RuntimeContracts.csproj" />
     <ProjectReference Include="..\Rhombus.WinFormsMcp.UiaWorker\Rhombus.WinFormsMcp.UiaWorker.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Rendering is not a publishable package, so the Server package embeds
+         its assembly to keep the three-package dependency closure closed. -->
+    <None Include="$(OutputPath)Rhombus.WinFormsMcp.Rendering.dll"
+          Pack="true"
+          PackagePath="lib/net8.0-windows7.0/"
+          Condition="'$(TargetFramework)' == 'net8.0-windows'" />
   </ItemGroup>
 </Project>

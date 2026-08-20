@@ -4,9 +4,10 @@ on:
   pull_request:
   push:
     branches:
-      - dev
       - main
       - 'feature/**'
+      - 'fix/**'
+      - 'release/**'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -19,10 +20,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Setup .NET
+    - name: Setup .NET (pinned SDK from global.json)
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        global-json-file: global.json
+
+    - name: Setup MSBuild (Visual Studio)
+      uses: microsoft/setup-msbuild@v2
 
     - name: Restore dependencies
       run: dotnet restore Rhombus.WinFormsMcp.sln
@@ -38,6 +42,14 @@ jobs:
 
     - name: Run tests with coverage
       run: dotnet test Rhombus.WinFormsMcp.sln --configuration Release --no-build --logger "console;verbosity=detailed" --collect:"XPlat Code Coverage" --results-directory ./coverage
+
+    - name: Check the three NuGet packages
+      shell: pwsh
+      run: ./scripts/pack-nuget.ps1 -Configuration Release -OutputRoot ./package-check
+
+    - name: Smoke-test .NET Framework 4.7.2 consumers
+      shell: pwsh
+      run: ./scripts/verify-net472-consumers.ps1 -Configuration Release -PackageRoot ./package-check/nuget
 
     - name: Install ReportGenerator
       run: dotnet tool install -g dotnet-reportgenerator-globaltool

@@ -10,6 +10,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <NoWarn>$(NoWarn);NETSDK1138</NoWarn>
     <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+    <!-- Rendering is embedded in the Server distribution and is not a
+         publishable package; keeping it non-packable keeps the Server
+         package's dependency closure limited to the three published
+         packages (Server, RuntimeContracts, RuntimeBridge). -->
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>

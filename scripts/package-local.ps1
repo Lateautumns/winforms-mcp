@@ -35,32 +35,7 @@ New-Item -ItemType Directory -Path $OutputRoot, $stagingRoot, $serverPackage, $n
 
 Push-Location $repoRoot
 try {
-    Invoke-Dotnet @(
-        "pack", "src\Rhombus.WinFormsMcp.Server\Rhombus.WinFormsMcp.Server.csproj",
-        "--configuration", $Configuration, "--no-restore", "/p:Version=$Version",
-        "/p:PackageOutputPath=$serverPackage"
-    )
-    Invoke-Dotnet @(
-        "pack", "src\Rhombus.WinFormsMcp.RuntimeContracts\Rhombus.WinFormsMcp.RuntimeContracts.csproj",
-        "--configuration", $Configuration, "--no-restore", "/p:Version=$Version",
-        "/p:PackageOutputPath=$serverPackage"
-    )
-    Invoke-Dotnet @(
-        "pack", "src\Rhombus.WinFormsMcp.RuntimeBridge\Rhombus.WinFormsMcp.RuntimeBridge.csproj",
-        "--configuration", $Configuration, "--no-restore", "/p:Version=$Version",
-        "/p:PackageOutputPath=$serverPackage"
-    )
-
-    $expectedPackages = @(
-        "Rhombus.WinFormsMcp.$Version.nupkg",
-        "Rhombus.WinFormsMcp.RuntimeContracts.$Version.nupkg",
-        "Rhombus.WinFormsMcp.RuntimeBridge.$Version.nupkg"
-    )
-    foreach ($packageName in $expectedPackages) {
-        if (-not (Test-Path (Join-Path $serverPackage $packageName))) {
-            throw "Expected NuGet package was not created: $packageName"
-        }
-    }
+    & (Join-Path $PSScriptRoot "pack-nuget.ps1") -Configuration $Configuration -Version $Version -OutputRoot $OutputRoot
 
     if (-not (Test-Path (Join-Path $serverOutput "winformsmcp.exe"))) {
         throw "Server output was not found at $serverOutput. Build the solution before packaging."
