@@ -81,8 +81,8 @@ dotnet pack src/Rhombus.WinFormsMcp.Server/Rhombus.WinFormsMcp.Server.csproj -c 
    - NUnit test suite covering AutomationHelper functionality, process lifecycle, element operations, and resource cleanup.
 
 5. **RuntimeContracts / RuntimeBridge**
-   - `RuntimeContracts` is a UI-framework-neutral Protocol v1 DTO assembly targeting `netstandard2.0`.
-   - `RuntimeBridge` targets `net48` and `net8.0-windows`; target applications opt in with `McpRuntimeBridge.Start()`.
+   - `RuntimeContracts` is a UI-framework-neutral Protocol v1 DTO assembly targeting `netstandard2.0` (single target).
+   - `RuntimeBridge` targets `net472`, `net48`, and `net8.0-windows`; target applications opt in with `McpRuntimeBridge.StartForControl(form)` from `Form.Shown` (or the compatible `McpRuntimeBridge.Start()` on a WinForms UI thread).
    - The bridge is read-only, uses a per-process Named Pipe, and marshals every Control read to the WinForms UI thread.
    - The server receives snapshots only; `Control`, `Binding`, and other live objects never cross the process boundary.
 
@@ -161,7 +161,7 @@ See the [Headless Mode wiki page](https://github.com/fnrhombus/winforms-mcp/wiki
 
 ## Git Workflow
 
-This project follows a **dev/main branching strategy** with **Semantic Versioning (SemVer)** according to https://semver.org/.
+This project uses **`main` plus short-lived feature/release branches** with **Semantic Versioning (SemVer)** according to https://semver.org/. There is no permanent `dev` branch.
 
 ### Git Hooks (Auto-Configured)
 
@@ -173,28 +173,27 @@ No manual setup required — hooks are configured automatically by `Directory.Bu
 
 ### Root Checkout
 
-**NEVER switch the branch of the root working directory.** The root checkout must stay on `dev` at all times. All feature/fix branch work must be done in git worktrees (`git worktree add` or `isolation: "worktree"` for agents). Switching the root checkout disrupts the working environment and risks losing uncommitted state.
+**NEVER switch a dirty root working directory.** Keep feature/fix work in dedicated worktrees (`git worktree add` or `isolation: "worktree"` for agents). Switching the root checkout disrupts the working environment and risks losing uncommitted state.
 
-**Before creating a worktree**, always pull the latest changes: `git pull` — worktrees are created from the current HEAD, and an outdated dev branch will create outdated worktrees.
+**Before creating a worktree**, fetch `origin/main` and use that explicit ref as the base. Do not assume the root checkout is current or clean.
 
 ### Branch Strategy
 
-- **dev** - Integration branch
-  - Receives merges from feature branches via PR
-  - **No meaningful work directly on dev** — only trivial changes that don't have a GitHub issue
-  - Triggers beta releases on push
-
-- **main** - Stable release branch
-  - Only receives merges from dev
+- **main** - Default integration and stable release branch
+  - Receives feature/fix branches through PRs
   - Protected: no direct commits allowed
   - Triggers stable releases on push
-  - Requires passing CI from dev before merge
+  - Requires passing CI before merge
 
-- **feature/** - Feature branches (required for all issues)
+- **feature/** and **fix/** - Short-lived branches (required for all issues)
   - **All bugs and features must have a GitHub issue first**
-  - Create from dev, work in a worktree, merge back to dev via PR
+  - Create from `origin/main`, work in a worktree, merge back to `main` via PR
   - Branch naming: `feature/<issue-number>-short-description` or `fix/<issue-number>-short-description`
   - Use `isolation: "worktree"` when spawning agents for implementation work
+
+- **release/** or a selected feature branch - Optional beta release source
+  - Beta releases are manual-only
+  - Dispatch `.github/workflows/release-beta.yml` from a non-`main` branch
 
 ### Issue Selection
 
@@ -212,41 +211,37 @@ Only pick issues that are open, unlabelled or labelled `enhancement`/`bug`/`good
 
 1. **Write up the issue** in GitHub (bug or feature), with appropriate labels
 2. **Label the issue `in progress`** when starting work (`gh issue edit N --add-label "in progress"`)
-3. **Create a feature branch** from dev (e.g., `feature/42-add-widget`)
+3. **Create a feature branch** from `origin/main` (e.g., `feature/42-add-widget`)
 4. **Do all work in a worktree** on that branch
-5. **Before opening a PR, sync with dev** — pull latest from dev into feature branch to catch conflicts early
-6. **Open a PR** against dev, referencing the issue
-7. **Merge the PR** into dev
+5. **Before opening a PR, sync with `origin/main`** to catch conflicts early
+6. **Open a PR** against `main`, referencing the issue
+7. **Merge the PR** into `main`
 8. **Close the issue and remove the `in progress` label** (`gh issue close N` + `gh issue edit N --remove-label "in progress"`)
 9. **Immediately clean up the worktree and branch** — mandatory, before any other work
 
 ```bash
 # Feature development (always via worktree + PR)
-git checkout dev
-git checkout -b feature/42-add-widget
-# ... make changes in worktree ...
+git fetch origin
+git worktree add ../winforms-mcp-42 -b feature/42-add-widget origin/main
+# ... make changes in ../winforms-mcp-42 ...
 git push -u origin feature/42-add-widget
 
-# Before opening PR, sync with latest dev (in feature branch)
+# Before opening PR, sync with latest main (in feature branch)
 git fetch origin
-git rebase origin/dev
+git rebase origin/main
 git push -f origin feature/42-add-widget
 
-gh pr create --base dev --title "feat: add widget" --body "Closes #42"
+gh pr create --base main --title "feat: add widget" --body "Closes #42"
 
 # After PR is merged — IMMEDIATELY clean up (GitHub auto-deletes remote branch)
-git checkout dev && git pull
+git worktree remove ../winforms-mcp-42 --force
 git branch -d feature/42-add-widget
-git worktree remove <worktree-path> --force
 
 # Verify cleanup is complete
 git worktree list  # Should only show root checkout
 git branch         # Should not contain worktree-* or feature/42-* branches
 
-# Release to production (when ready)
-./scripts/merge-to-main.ps1  # PowerShell
-# OR
-./scripts/merge-to-main.sh   # Bash
+# A successful merge/push to main triggers the stable release workflow.
 ```
 
 **MANDATORY CLEANUP:** After every PR merge, delete the local branch and worktree immediately — before moving to the next task. GitHub auto-deletes the remote branch, but you must handle the local cleanup. This is non-negotiable.
@@ -262,21 +257,23 @@ Versions follow **Semantic Versioning (SemVer)**:
 
 ### Version Bumping
 
-- **Dev branch**: GitHub Actions analyzes commit messages (conventional commits) to determine bump type
+- **Manual beta from a non-main branch**: GitHub Actions analyzes commit messages since `origin/main` to determine bump type
   - `BREAKING CHANGE:` in commit → `major` bump
   - `feat:` prefix → `minor` bump
   - Default → `patch` bump
   - Versions have `-beta` suffix (e.g., 1.2.3-beta)
-  - Auto-bumped on every push to dev via `.github/workflows/release-beta.yml`
+  - `.github/workflows/release-beta.yml` must be dispatched manually from the selected branch
 
-- **Master branch**: Version comes from dev, `-beta` suffix removed
+- **Main branch**: Any `-beta` suffix is removed for the stable version
   - Creates stable release (e.g., 1.2.3)
   - Published to NuGet and NPM as stable
 
-Version stored in three places (auto-synced by CI):
+Version stored in five places (synchronized by `scripts/sync-version.ps1`):
 1. `VERSION` file (source of truth)
 2. `npm/package.json`
 3. `src/Rhombus.WinFormsMcp.Server/Rhombus.WinFormsMcp.Server.csproj`
+4. `src/Rhombus.WinFormsMcp.RuntimeContracts/Rhombus.WinFormsMcp.RuntimeContracts.csproj`
+5. `src/Rhombus.WinFormsMcp.RuntimeBridge/Rhombus.WinFormsMcp.RuntimeBridge.csproj`
 
 ## Code Coverage
 
@@ -309,44 +306,22 @@ open ./coverage/report/index.html   # Mac/Linux
 
 ## CI/CD
 
-### Dev Branch CI (.github/workflows/release-beta.yml)
-Triggers on push to `dev` branch:
-1. Build and test
-2. Analyze commits using conventional commit prefixes to determine version bump type (`BREAKING CHANGE:` → major, `feat:` → minor, else → patch)
-3. Increment version with `-beta` suffix
-4. Publish beta to NuGet and NPM
-5. Commit version bump back to dev
+### Manual Beta Release (.github/workflows/release-beta.yml)
+Dispatched manually from a selected non-`main` feature/release branch:
+1. Analyze commits since `origin/main` and synchronize the final `-beta` version
+2. Restore, format-check, build, and test that final version
+3. Pack the three NuGet packages once and run both net472 consumers against those exact files
+4. Commit/push the version bump only after every gate passes
+5. Publish the gated packages to NuGet in dependency order (beta NPM publishing is disabled)
 
-### Master Branch CI (.github/workflows/release-stable.yml)
-Triggers on push to `main` branch (merge from dev):
+### Main Branch Stable Release (.github/workflows/release-stable.yml)
+Triggers on push to `main` (or manual dispatch):
 1. Remove `-beta` suffix from version
-2. Build and test
-3. Generate changelog from git log (grouped by conventional commit type)
-4. Create GitHub release with auto-generated changelog
-5. Publish stable version to NuGet and NPM
-6. Tag with version number
-
-### Merge Script Usage
-
-```powershell
-# PowerShell (Windows)
-./scripts/merge-to-main.ps1          # Interactive, with CI check
-./scripts/merge-to-main.ps1 -Force   # Skip CI check (not recommended)
-./scripts/merge-to-main.ps1 -DryRun  # Preview without executing
-```
-
-```bash
-# Bash (Mac/Linux/WSL)
-./scripts/merge-to-main.sh           # Interactive, with CI check
-./scripts/merge-to-main.sh --force   # Skip CI check (not recommended)
-./scripts/merge-to-main.sh --dry-run # Preview without executing
-```
-
-The merge script:
-- Verifies dev branch CI is passing
-- Confirms version number
-- Merges dev to main
-- Pushes to trigger release workflow
+2. Restore, format-check, build, and test the final stable version
+3. Pack once and run both net472 consumers against the exact NuGet files to publish
+4. Commit/tag only after every gate passes
+5. Generate the changelog and GitHub release
+6. Publish the stable NuGet packages in dependency order and publish NPM
 
 ## Commit Guidelines
 

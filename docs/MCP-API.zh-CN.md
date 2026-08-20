@@ -123,12 +123,13 @@
 
 可选的桥接包在契约边界上有意保持框架中立：
 
-- `Rhombus.WinFormsMcp.RuntimeContracts`：`netstandard2.0` DTO 和 Protocol v1。
-- `Rhombus.WinFormsMcp.RuntimeBridge`：`net48` 和 `net8.0-windows`。
-- 桥接必须从目标应用程序的 UI 线程启动，并且应在窗体关闭期间停止。它只返回
-  快照。
-- 像 NGUS2 这样的 `net472` 应用程序在不进行兼容性实验的情况下无法引用当前的
-  `net48` 桥接。UIA 自动化和渲染不需要桥接，仍是回退路径。
+- `Rhombus.WinFormsMcp.RuntimeContracts`：单目标 `netstandard2.0` DTO 和 Protocol v1。
+- `Rhombus.WinFormsMcp.RuntimeBridge`：`net472`、`net48` 和 `net8.0-windows`。
+- 桥接从目标应用程序的 UI 线程启动，推荐在 `Form.Shown` 中调用
+  `McpRuntimeBridge.StartForControl(form)`，并在窗体关闭期间（`FormClosed`）停止。
+  它只返回快照。
+- 像 NGUS2 这样的 `net472` 应用程序现在可以直接匹配 `net472` 桥接目标。UIA
+  自动化和渲染不需要桥接，仍是回退路径。
 - 本文档中的任何工具都不授权编辑 Designer 代码、调用 VS MCP、调用 CodeGraph MCP、
   任意反射或更改运行时属性。
 

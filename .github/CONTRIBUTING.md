@@ -6,7 +6,7 @@ Thanks for your interest in contributing! This document covers how to get starte
 
 1. Fork the repository at [github.com/fnrhombus/WinFormsMcp](https://github.com/fnrhombus/WinFormsMcp)
 2. Clone your fork locally
-3. Create a branch from `dev` for your work
+3. Create a feature or fix branch from `main` for your work
 
 ## Build and Test
 
@@ -21,16 +21,16 @@ dotnet test Rhombus.WinFormsMcp.sln
 
 ## Branching Strategy
 
-- **dev** -- active development branch. All PRs should target `dev`.
-- **main** -- stable releases only. Never commit directly to main.
-- **feature/** -- optional feature branches for multi-commit work. Branch from `dev`, merge back to `dev`.
+- **main** -- default integration and stable release branch. Never commit directly to main.
+- **feature/** and **fix/** -- short-lived work branches. Branch from `main`, merge back to `main` through a PR.
+- **release/** -- optional non-main branch for a manually dispatched beta release.
 
 ## Submitting a Pull Request
 
-1. Ensure your branch is up to date with `dev`
+1. Ensure your branch is up to date with `main`
 2. Run `dotnet build Rhombus.WinFormsMcp.sln` -- no errors
 3. Run `dotnet test Rhombus.WinFormsMcp.sln` -- all tests pass
-4. Push your branch and open a PR against `dev`
+4. Push your branch and open a PR against `main`
 5. Fill out the PR template
 
 ## Commit Messages

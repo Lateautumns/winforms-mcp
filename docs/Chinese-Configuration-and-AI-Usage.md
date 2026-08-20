@@ -352,7 +352,7 @@ UIA 只能看到自动化树；如果要读取真实 `Control.Controls`、布局
 
 ### 添加引用
 
-目标项目是 `net48` 或 `net8.0-windows` 时，可以引用：
+目标项目是 `net472`、`net48` 或 `net8.0-windows` 时，可以引用：
 
 ```xml
 <ItemGroup>
@@ -367,18 +367,38 @@ UIA 只能看到自动化树；如果要读取真实 `Control.Controls`、布局
 <ProjectReference Include="C:\src\winforms-mcp\src\Rhombus.WinFormsMcp.RuntimeBridge\Rhombus.WinFormsMcp.RuntimeBridge.csproj" />
 ```
 
-`RuntimeBridge` 当前目标为 `net48;net8.0-windows`。`net472` 应用（例如当前验证的
-NGUS2）不能直接引用 `net48` Bridge；这时仍可使用 UIA、截图和 Designer 渲染，
-不要为了开启 Bridge 擅自修改业务项目的 TFM。
+`RuntimeBridge` 当前目标为 `net472;net48;net8.0-windows`，`net472` 应用（例如当前验证的
+NGUS2）可直接引用 `net472` 桥接目标。`Rhombus.WinFormsMcp.RuntimeContracts` 保持单目标
+`netstandard2.0`，所有目标共享同一份 DTO 程序集。若不启用桥接，仍可继续使用 UIA、截图和
+Designer 渲染。
+
+传统非 SDK（旧式 .csproj）项目引用 Bridge 包时，请启用自动绑定重定向，否则
+`System.Text.Json` 等传递依赖可能在运行时找不到正确版本：
+
+```xml
+<PropertyGroup>
+  <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+  <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+</PropertyGroup>
+```
 
 ### 在 UI 线程启动和停止
 
 不要在后台线程直接读取 WinForms 控件。Bridge 内部会把读取调度到 UI 线程，应用只需
-在 UI 生命周期中启动和停止：
+在 UI 生命周期中启动和停止。推荐在 `Form.Shown`（此时窗体句柄已创建）中调用
+`McpRuntimeBridge.StartForControl(form)`，在 `FormClosed` 中停止：
 
 ```csharp
 using Rhombus.WinFormsMcp.RuntimeBridge;
 
+// 在 Form 的构造或 Program.cs 中挂接事件：
+form.Shown += (_, _) => McpRuntimeBridge.StartForControl(form);
+form.FormClosed += (_, _) => McpRuntimeBridge.Stop();
+```
+
+或者用窗体子类写法：
+
+```csharp
 private RuntimeBridgeHost? _mcpBridge;
 
 protected override void OnShown(EventArgs e)
@@ -386,7 +406,7 @@ protected override void OnShown(EventArgs e)
     base.OnShown(e);
 
     if (Environment.GetEnvironmentVariable("WINFORMS_MCP_BRIDGE") == "1")
-        _mcpBridge = McpRuntimeBridge.Start(new RuntimeBridgeOptions { Debug = true });
+        _mcpBridge = McpRuntimeBridge.StartForControl(this, new RuntimeBridgeOptions { Debug = true });
 }
 
 protected override void OnFormClosed(FormClosedEventArgs e)
@@ -395,6 +415,12 @@ protected override void OnFormClosed(FormClosedEventArgs e)
     base.OnFormClosed(e);
 }
 ```
+
+`StartForControl` 要求控件已创建窗口句柄（因此要在 `Form.Shown` 或之后调用）；
+控件已释放时抛出 `ObjectDisposedException`，没有句柄时抛出带迁移提示的
+`InvalidOperationException`。旧入口 `McpRuntimeBridge.Start()` 仍然可用：当没有已打开
+窗体且当前线程没有 WinForms UI 同步上下文时，它会立即抛出 `InvalidOperationException`
+而不是在管道线程上直接访问控件。
 
 只在开发/调试环境设置 `WINFORMS_MCP_BRIDGE=1`，不要在不了解安全边界时把 Bridge
 默认开启到面向用户的生产版本。Bridge 是只读的，但它会暴露运行中的控件结构、属性和
@@ -446,7 +472,10 @@ Designer 文件来掩盖加载错误。
 ### RuntimeBridge 返回 unavailable
 
 - 目标程序没有引用或启动 Bridge；检查应用启动日志和 `WINFORMS_MCP_BRIDGE=1`。
-- 目标 TFM 可能是 `net472`；当前 Bridge 不支持直接引用该 TFM。
+- 确认 Bridge 已在 UI 线程启动：推荐在 `Form.Shown` 中调用
+  `McpRuntimeBridge.StartForControl(form)`；在后台线程或窗体句柄创建前调用会得到
+  明确的异常而不是降级行为。`net472` 应用请引用 `net472` 桥接目标，并启用自动
+  绑定重定向。
 - Bridge 必须在目标进程内启动，MCP Server 本身的进程 ID 不能当成业务进程 ID。
 - 应用重启后要重新获取 `controlId` 和 `bridgeInstanceId`。
 
